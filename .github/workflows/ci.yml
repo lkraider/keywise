@@ -38,8 +38,8 @@ jobs:
       # One invocation, so the build runner schedules both step trees at once
       # against one cache. Debug here, and windows-test runs the same suite at
       # ReleaseSafe.
-      - name: zig build test smoke
-        run: ./zig/zig-aarch64-macos-${ZIG_VERSION}/zig build test smoke
+      - name: test-check
+        run: ZIG=./zig/zig-aarch64-macos-${ZIG_VERSION}/zig ./scripts/test-check.sh smoke
 
       - name: Build the Zig core (release, for the macOS app to link)
         run: ./zig/zig-aarch64-macos-${ZIG_VERSION}/zig build -Doptimize=ReleaseSafe
@@ -177,8 +177,8 @@ jobs:
           tar -xf zig.tar.xz -C zig
           rm zig.tar.xz
 
-      - name: zig build test
-        run: ./zig/zig-x86_64-linux-${ZIG_VERSION}/zig build test
+      - name: test-check
+        run: ZIG=./zig/zig-x86_64-linux-${ZIG_VERSION}/zig ./scripts/test-check.sh --no-oracle
 
       - name: Build the TUI for x86_64-linux-musl and record its sum
         id: build
@@ -223,8 +223,8 @@ jobs:
           tar -xf zig.tar.xz -C zig
           rm zig.tar.xz
 
-      - name: zig build test
-        run: ./zig/zig-aarch64-linux-${ZIG_VERSION}/zig build test
+      - name: test-check
+        run: ZIG=./zig/zig-aarch64-linux-${ZIG_VERSION}/zig ./scripts/test-check.sh --no-oracle
 
       - name: Build the TUI for aarch64-linux-musl and record its sum
         id: build

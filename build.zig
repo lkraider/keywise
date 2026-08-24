@@ -26,6 +26,7 @@ pub fn build(b: *std.Build) void {
     }
 
     const optimize = b.standardOptimizeOption(.{});
+    const test_run_always = b.option(bool, "test-run-always", "Skip the test cache and re-run every test") orelse false;
 
     // `keywise --version` prints this. Reading the manifest keeps the version in
     // one file. scripts/release-set-version.sh writes it, and release.yml
@@ -71,7 +72,9 @@ pub fn build(b: *std.Build) void {
     });
     const tests = b.addTest(.{ .root_module = test_mod });
     const test_step = b.step("test", "Run the core and TUI tests");
-    test_step.dependOn(&b.addRunArtifact(tests).step);
+    const run_tests = b.addRunArtifact(tests);
+    if (test_run_always) run_tests.has_side_effects = true;
+    test_step.dependOn(&run_tests.step);
 
     // The oracle reads every fixture through core/src/sqlitedb.zig and again
     // through the system sqlite3, then compares the bytes. It links
@@ -105,7 +108,9 @@ pub fn build(b: *std.Build) void {
         });
         oracle_mod.linkSystemLibrary("sqlite3", .{});
         const oracle = b.addTest(.{ .root_module = oracle_mod });
-        test_step.dependOn(&b.addRunArtifact(oracle).step);
+        const run_oracle = b.addRunArtifact(oracle);
+        if (test_run_always) run_oracle.has_side_effects = true;
+        test_step.dependOn(&run_oracle.step);
     }
 
     // The TUI's argument parser. The tui module would pull vaxis and
@@ -115,7 +120,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     }) });
-    test_step.dependOn(&b.addRunArtifact(args_tests).step);
+    const run_args = b.addRunArtifact(args_tests);
+    if (test_run_always) run_args.has_side_effects = true;
+    test_step.dependOn(&run_args.step);
 
     // TUI. core/src/root.zig is the module a front end imports
     // through. A relative import cannot cross from tui/src into core/src.
@@ -159,7 +166,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{.{ .name = "core", .module = core_mod }},
     }) });
-    test_step.dependOn(&b.addRunArtifact(model_tests).step);
+    const run_model = b.addRunArtifact(model_tests);
+    if (test_run_always) run_model.has_side_effects = true;
+    test_step.dependOn(&run_model.step);
 
     // win/app.rc and win/src/ids.zig repeat the same resource ids. The test
     // in ids.zig reads win/src/resource.h and compares every value.
@@ -168,7 +177,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     }) });
-    test_step.dependOn(&b.addRunArtifact(ids_tests).step);
+    const run_ids = b.addRunArtifact(ids_tests);
+    if (test_run_always) run_ids.has_side_effects = true;
+    test_step.dependOn(&run_ids.step);
 
     // win/src/text.zig imports std alone, so its cut-at-a-codepoint tests run
     // on the host that builds the exe.
@@ -177,7 +188,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     }) });
-    test_step.dependOn(&b.addRunArtifact(text_tests).step);
+    const run_text = b.addRunArtifact(text_tests);
+    if (test_run_always) run_text.has_side_effects = true;
+    test_step.dependOn(&run_text.step);
 
     // The Win32 front end. It imports `core` directly, the way tui does. No
     // C ABI, no FFI, no libc.
