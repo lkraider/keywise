@@ -45,6 +45,7 @@ read_zon() { sed -n 's/^ *\.version = "\([^"]*\)".*/\1/p' build.zig.zon; }
 read_changelog() { sed -n 's/^## \[\([^]]*\)\].*/\1/p' CHANGELOG.md | head -1; }
 read_cask() { sed -n 's/^ *version "\([^"]*\)".*/\1/p' Casks/keywise-app.rb; }
 read_formula() { sed -n 's|.*/download/v\([^/]*\)/.*|\1|p' Formula/keywise.rb; }
+read_scoop() { sed -n 's/^ *"version": "\([^"]*\)".*/\1/p' bucket/keywise.json; }
 
 check() {
     status=0
@@ -54,7 +55,8 @@ check() {
         "build.zig.zon=$(read_zon)" \
         "CHANGELOG.md=$(read_changelog)" \
         "Casks/keywise-app.rb=$(read_cask)" \
-        "Formula/keywise.rb=$(read_formula)"
+        "Formula/keywise.rb=$(read_formula)" \
+        "bucket/keywise.json=$(read_scoop)"
     do
         found="${pair#*=}"
         if [ "$found" = "$version" ]; then
@@ -113,6 +115,10 @@ edit win/app.rc \
 edit build.zig.zon -e "s/^\( *\.version = \)\".*\"/\1\"$version\"/"
 edit Casks/keywise-app.rb -e "s/^\( *version \)\".*\"/\1\"$version\"/"
 edit Formula/keywise.rb -e "s|/download/v[^/]*/|/download/v$version/|"
+edit bucket/keywise.json \
+    -e "s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" \
+    -e "s|/download/v[^/]*/|/download/v$version/|" \
+    -e "s/Keywise-[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*/Keywise-$version/g"
 
 # A heading that already names this version keeps its date.
 if [ "$(read_changelog)" != "$version" ]; then
