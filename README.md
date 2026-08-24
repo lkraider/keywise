@@ -61,7 +61,14 @@ sudo apt install xclip           # X11
 
 `dnf install` and `pacman -S` take the same package names.
 
-On Windows, download `Keywise-<version>-windows-arm64.zip` or
+On Windows, install with [Scoop](https://scoop.sh/):
+
+```
+scoop bucket add keywise https://github.com/lkraider/keywise
+scoop install keywise
+```
+
+Or download `Keywise-<version>-windows-arm64.zip` or
 `-windows-x86_64.zip` from the releases page and unzip it. The exe is a
 single file and needs no install. It is unsigned, so SmartScreen shows a
 warning on first launch. Choose More info, then Run anyway.
