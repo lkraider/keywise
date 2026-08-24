@@ -5,7 +5,7 @@ cask "keywise-app" do
   # writes a different SHA-256. CI builds the asset a release uploads. Read
   # the hash from ci.yml's reproducible-build job. That job prints it on
   # every push.
-  sha256 "9d4c2198e5a6bcacc4344f09eda8516efab30771d8eec51d12ab2c380a1943ed"
+  sha256 "fe875a8bda9d32153fa4f1895cd6ceba0ce38a637ca5daaf0118e8bb8a7b3958"
 
   url "https://github.com/lkraider/keywise/releases/download/v#{version}/Keywise-#{version}-macos.zip"
   name "Keywise"
