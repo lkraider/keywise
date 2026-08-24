@@ -148,7 +148,15 @@ It cannot read these profiles:
   3DES-encrypted entries only. This tool reports 3DES per entry and stops
   there.
 - One whose `key4.db` uses SQLite's write-ahead log. No Firefox profile
-  measured uses one. A profile that does stops the app with `WalJournal`.
+  measured uses one. The app reports "key4.db uses write-ahead logging.
+  Open Firefox and close it to commit the log". If Firefox cannot open
+  the profile, convert a copy:
+
+  ```
+  cp -R <profile> /tmp/profile-copy
+  sqlite3 /tmp/profile-copy/key4.db 'PRAGMA journal_mode=delete'
+  keywise --profile /tmp/profile-copy
+  ```
 
 ## Security
 

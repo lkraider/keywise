@@ -147,7 +147,9 @@ confirms the Primary Password before any key material is unwrapped.
   appeared. A read landing mid-write with a WAL file present is
   untested. Reaching that state needs a write to a live profile.
   `sqlitedb.zig` reads the write version at header offset 18 and returns
-  `error.WalJournal` for a value of 2. Every committed `key4.db` reports 1.
+  `error.WalJournal` for a value of 2. The message a person sees is
+  "key4.db uses write-ahead logging. Open Firefox and close it to commit
+  the log". Every committed `key4.db` reports 1.
 
 ## Prior art
 

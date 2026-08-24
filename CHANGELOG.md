@@ -2,6 +2,24 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- A `logins.json` where the `"logins"` value is an object (`{}`) caused a
+  panic. The reader now returns `NoLoginsArray`.
+- A `key4.db` whose key rows all fail to unwrap now returns
+  `KeyUnwrapFailed` with a message that names the two readings: a wrong
+  Primary Password, or damaged key data.
+
+### Added
+
+- `WalJournal` message when `key4.db` uses SQLite's write-ahead log. The
+  message tells the person to open Firefox and close it.
+- Every error `Store.open` and `Store.reveal` can return now maps to text
+  a person can act on. An exhaustive compile-time test walks the error set
+  and fails if a member falls through to the generic fallback.
+
 ## [2.0.0] - 2026-08-20
 
 ### Changed

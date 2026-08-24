@@ -13,8 +13,7 @@ pub const Error = error{
     BadIvLength,
     UnsupportedKeyLen,
     UnsupportedGlobalSaltLen,
-} || der.Error || aescbc.Error || std.crypto.errors.WeakParametersError ||
-    std.crypto.errors.OutputTooLongError;
+} || der.Error || aescbc.Error || std.crypto.errors.WeakParametersError;
 
 pub const Prf = enum { hmac_sha1, hmac_sha256 };
 
@@ -99,20 +98,27 @@ pub fn deriveKey(p: Params, global_salt: []const u8, password: []const u8, out: 
     const seed_slice = seed[0..global_salt.len];
 
     switch (p.prf) {
-        .hmac_sha256 => try std.crypto.pwhash.pbkdf2(
+        .hmac_sha256 => std.crypto.pwhash.pbkdf2(
             out,
             seed_slice,
             p.entry_salt,
             p.iterations,
             std.crypto.auth.hmac.sha2.HmacSha256,
-        ),
-        .hmac_sha1 => try std.crypto.pwhash.pbkdf2(
+        ) catch |e| switch (e) {
+            // out is 32 bytes, well below maxInt(u32) * h_len
+            error.OutputTooLong => unreachable,
+            error.WeakParameters => return error.WeakParameters,
+        },
+        .hmac_sha1 => std.crypto.pwhash.pbkdf2(
             out,
             seed_slice,
             p.entry_salt,
             p.iterations,
             std.crypto.auth.hmac.HmacSha1,
-        ),
+        ) catch |e| switch (e) {
+            error.OutputTooLong => unreachable,
+            error.WeakParameters => return error.WeakParameters,
+        },
     }
 }
 

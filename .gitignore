@@ -32,3 +32,6 @@ logins*.json
 # Firefox over Marionette. See scripts/test-mkfixtures.py.
 !core/testdata/**/*.db
 !core/testdata/**/logins.json
+
+# Launch-copy drafts, read before posting and never committed.
+launch/

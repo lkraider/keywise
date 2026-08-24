@@ -10,6 +10,8 @@ pub const Error = error{
     MissingPasswordRow,
     WrongPassword,
     NoSdrKey,
+    WalJournal,
+    KeyUnwrapFailed,
 } || pbes2.Error;
 
 /// A profile can carry both keys at once. Firefox 144 adds the 32-byte key
@@ -34,7 +36,10 @@ const row_buf_len = 4096;
 pub fn load(io: std.Io, path: []const u8, password: []const u8) Error!Keys {
     // Opening read-only keeps this tool from touching a profile Firefox may
     // be using.
-    var db = sqlitedb.Db.open(io, path) catch return error.OpenFailed;
+    var db = sqlitedb.Db.open(io, path) catch |e| switch (e) {
+        error.WalJournal => return error.WalJournal,
+        else => return error.OpenFailed,
+    };
     defer db.close();
 
     var buf: [row_buf_len]u8 = undefined;
@@ -87,6 +92,7 @@ pub fn load(io: std.Io, path: []const u8, password: []const u8) Error!Keys {
         const a11_col = nss.columnIndex("a11") catch return error.QueryFailed;
         const a102_col = nss.columnIndex("a102") catch return error.QueryFailed;
 
+        var unwrap_failures: usize = 0;
         var it = nss.rows(&db, &buf);
         while (it.next() catch return error.QueryFailed) |row| {
             const id = row.column(a102_col) orelse continue;
@@ -97,15 +103,21 @@ pub fn load(io: std.Io, path: []const u8, password: []const u8) Error!Keys {
 
             var out: [128]u8 = undefined;
             defer std.crypto.secureZero(u8, &out);
-            const plain = pbes2.unwrap(wrapped, global_salt, password, &out) catch continue;
+            const plain = pbes2.unwrap(wrapped, global_salt, password, &out) catch {
+                unwrap_failures += 1;
+                continue;
+            };
             switch (plain.len) {
                 32 => keys.aes256 = plain[0..32].*,
                 24 => keys.des3 = plain[0..24].*,
                 else => {},
             }
         }
-    }
 
-    if (keys.aes256 == null and keys.des3 == null) return error.NoSdrKey;
+        if (keys.aes256 == null and keys.des3 == null) {
+            if (unwrap_failures > 0) return error.KeyUnwrapFailed;
+            return error.NoSdrKey;
+        }
+    }
     return keys;
 }

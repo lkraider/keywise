@@ -29,6 +29,11 @@ const fixtures = [_][]const u8{
     // usable bytes of each 512-byte page. Every other fixture reserves 0,
     // where usable and page_size are equal.
     "core/testdata/reserved.db",
+    // Random column counts, type affinities, boundary integers, and rows
+    // whose records stop before the last column after ALTER TABLE ADD COLUMN.
+    "core/testdata/random.db",
+    "core/testdata/no-password-row/key4.db",
+    "core/testdata/no-key-row/key4.db",
 };
 
 /// The widest record is the 75005-byte one in the 64 KB page fixture.

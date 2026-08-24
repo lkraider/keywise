@@ -15,13 +15,14 @@ Usage:
     scripts/test-mkfixtures.py fanout
     scripts/test-mkfixtures.py page64k
     scripts/test-mkfixtures.py reserved
+    scripts/test-mkfixtures.py random
 
 The first four subcommands launch Firefox, drive it, and quit it. Firefox
 must be fully closed before the caller reads key4.db or logins.json, so this
 script always waits for the child process to exit.
 
-The `overflow` and `page64k` subcommands run no Firefox. Each writes one
-database through Python's own sqlite3. The `fanout` and `reserved` subcommands
+The `overflow`, `page64k` and `random` subcommands run no Firefox. Each writes
+one database through Python's own sqlite3. The `fanout` and `reserved` subcommands
 run neither, and assemble their pages byte by byte. See
 core/testdata/README.md.
 """
@@ -29,6 +30,7 @@ core/testdata/README.md.
 import argparse
 import json
 import os
+import random
 import socket
 import sqlite3
 import struct
@@ -651,6 +653,142 @@ def cmd_fanout(args):
         f.write(b"".join(pages))
 
 
+# Each value sits at the boundary where SQLite's record serial type changes.
+RANDOM_BOUNDARY_INTS = [
+    0, 1, -1,
+    -128, 127, -129, 128,
+    -32768, 32767, -32769, 32768,
+    -8388608, 8388607, -8388609, 8388608,
+    -2147483648, 2147483647, -2147483649, 2147483648,
+    -140737488355328, 140737488355327,
+    -140737488355329, 140737488355328,
+    -9223372036854775808, 9223372036854775807,
+]
+
+RANDOM_SEED = 0xc3c3_3c3c_c3c3_3c3c
+
+
+def random_value(rng):
+    """One column value chosen at random from the types SQLite stores."""
+    kind = rng.choice(["null", "int", "boundary", "float", "text", "blob", "empty_blob"])
+    if kind == "null":
+        return None
+    if kind == "int":
+        return rng.randint(-(2**62), 2**62)
+    if kind == "boundary":
+        return rng.choice(RANDOM_BOUNDARY_INTS)
+    if kind == "float":
+        return rng.uniform(-1e10, 1e10)
+    if kind == "text":
+        n = rng.randint(0, 200)
+        return "".join(rng.choice("abcdefghijklmnopqrstuvwxyz0123456789") for _ in range(n))
+    if kind == "blob":
+        n = rng.randint(1, 200)
+        return bytes(rng.randint(0, 255) for _ in range(n))
+    return b""
+
+
+def cmd_random(args):
+    """Writes one database with random schemas and values.
+
+    Python's sqlite3 writes the file, so the bytes come from SQLite.
+    RANDOM_SEED controls every choice, so two runs write the same bytes.
+    ALTER TABLE ADD COLUMN after the first batch of inserts leaves rows
+    whose records stop before the last declared column.
+    """
+    if os.path.exists(args.random_out):
+        os.remove(args.random_out)
+
+    rng = random.Random(RANDOM_SEED)
+
+    con = sqlite3.connect(args.random_out)
+    con.execute("PRAGMA page_size = 4096")
+    con.execute("PRAGMA journal_mode = delete")
+
+    affinities = ["TEXT", "NUMERIC", "INTEGER", "REAL", "BLOB", ""]
+
+    tables = []
+    for t in range(5):
+        ncols = rng.randint(2, 8)
+        cols = []
+        for c in range(ncols):
+            aff = rng.choice(affinities)
+            cols.append(f"c{c} {aff}" if aff else f"c{c}")
+        name = f"t{t}"
+        con.execute(f"CREATE TABLE {name} ({', '.join(cols)})")
+        tables.append((name, ncols))
+
+        for _ in range(30):
+            values = [random_value(rng) for _ in range(ncols)]
+            placeholders = ", ".join("?" for _ in values)
+            con.execute(f"INSERT INTO {name} VALUES ({placeholders})", values)
+
+    for name, ncols in tables:
+        aff = rng.choice(affinities)
+        decl = f"late {aff}" if aff else "late"
+        con.execute(f"ALTER TABLE {name} ADD COLUMN {decl}")
+
+        for _ in range(10):
+            values = [random_value(rng) for _ in range(ncols + 1)]
+            placeholders = ", ".join("?" for _ in values)
+            con.execute(f"INSERT INTO {name} VALUES ({placeholders})", values)
+
+    con.commit()
+    con.close()
+
+
+def cmd_synthetic(args):
+    """Writes two synthetic key4.db fixtures through Python's sqlite3.
+
+    Each carries the metaData and nssPrivate tables from Firefox's schema.
+    The password-check row is copied verbatim from core/testdata/fresh/key4.db,
+    so the empty password decrypts it.
+
+    no-password-row/key4.db: metaData exists but holds no row with
+    id = 'password'. keydb.load returns MissingPasswordRow.
+
+    no-key-row/key4.db: metaData holds the password-check row. nssPrivate
+    is empty. keydb.load returns NoSdrKey.
+    """
+    src = sqlite3.connect(os.path.join("core", "testdata", "fresh", "key4.db"))
+    meta_sql = src.execute(
+        "SELECT sql FROM sqlite_master WHERE name = 'metaData'"
+    ).fetchone()[0]
+    nss_sql = src.execute(
+        "SELECT sql FROM sqlite_master WHERE name = 'nssPrivate'"
+    ).fetchone()[0]
+    pw_row = src.execute(
+        "SELECT item1, item2 FROM metaData WHERE id = 'password'"
+    ).fetchone()
+    src.close()
+    global_salt, check_blob = pw_row
+
+    for name, include_pw, include_version in [
+        ("no-password-row", False, True),
+        ("no-key-row", True, False),
+    ]:
+        out_dir = os.path.join("core", "testdata", name)
+        os.makedirs(out_dir, exist_ok=True)
+        out_path = os.path.join(out_dir, "key4.db")
+        if os.path.exists(out_path):
+            os.remove(out_path)
+        con = sqlite3.connect(out_path)
+        con.execute("PRAGMA page_size = 32768")
+        con.execute("PRAGMA journal_mode = delete")
+        con.execute(meta_sql)
+        con.execute(nss_sql)
+        if include_pw:
+            con.execute(
+                "INSERT INTO metaData VALUES ('password', ?, ?)",
+                (global_salt, check_blob),
+            )
+        if include_version:
+            con.execute("INSERT INTO metaData VALUES ('version', X'01', NULL)")
+        con.commit()
+        con.close()
+        print(f"wrote {out_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--firefox", default=DEFAULT_FIREFOX, help="path to the firefox binary")
@@ -663,6 +801,8 @@ def main():
                         help="output path for the 64 KB page fixture")
     parser.add_argument("--reserved-out", default="core/testdata/reserved.db",
                         help="output path for the reserved-bytes fixture")
+    parser.add_argument("--random-out", default="core/testdata/random.db",
+                        help="output path for the random-schema fixture")
     parser.add_argument("--port", type=int, default=MARIONETTE_PORT)
     sub = parser.add_subparsers(dest="fixture", required=True)
     sub.add_parser("fresh")
@@ -673,6 +813,8 @@ def main():
     sub.add_parser("fanout")
     sub.add_parser("page64k")
     sub.add_parser("reserved")
+    sub.add_parser("random")
+    sub.add_parser("synthetic")
 
     args = parser.parse_args()
 
@@ -694,6 +836,15 @@ def main():
     if args.fixture == "reserved":
         cmd_reserved(args)
         print(f"wrote {args.reserved_out}")
+        return
+
+    if args.fixture == "random":
+        cmd_random(args)
+        print(f"wrote {args.random_out}")
+        return
+
+    if args.fixture == "synthetic":
+        cmd_synthetic(args)
         return
 
     if args.profile is None:

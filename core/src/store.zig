@@ -6,6 +6,9 @@ const std = @import("std");
 const keydb = @import("keydb.zig");
 const logins = @import("logins.zig");
 
+pub const Error = keydb.Error || logins.Error || error{ LoginsUnreadable, FileNotFound, AccessDenied } || std.mem.Allocator.Error;
+pub const RevealError = logins.RevealError;
+
 pub const Entry = logins.Entry;
 pub const Kind = logins.Kind;
 
@@ -25,7 +28,7 @@ pub const Store = struct {
         io: std.Io,
         profile_path: []const u8,
         password: []const u8,
-    ) !Store {
+    ) Error!Store {
         var arena_state = std.heap.ArenaAllocator.init(backing);
         errdefer arena_state.deinit();
         const gpa = arena_state.allocator();
@@ -35,7 +38,12 @@ pub const Store = struct {
 
         const cwd = std.Io.Dir.cwd();
         const logins_path = try std.fmt.allocPrint(gpa, "{s}/logins.json", .{profile_path});
-        const json = try cwd.readFileAlloc(io, logins_path, gpa, .unlimited);
+        const json = cwd.readFileAlloc(io, logins_path, gpa, .unlimited) catch |e| switch (e) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.FileNotFound => return error.FileNotFound,
+            error.AccessDenied => return error.AccessDenied,
+            else => return error.LoginsUnreadable,
+        };
 
         const result = try logins.scan(gpa, json, keys);
 
@@ -78,7 +86,7 @@ pub const Store = struct {
 
     /// Decrypts entry `index`'s password into `out`. Returns
     /// `error.LegacyTripleDes` for an entry this project cannot decrypt.
-    pub fn reveal(self: *const Store, index: usize, scratch: []u8, out: []u8) ![]u8 {
+    pub fn reveal(self: *const Store, index: usize, scratch: []u8, out: []u8) RevealError![]u8 {
         return logins.revealPassword(self.entries[index], self.keys, scratch, out);
     }
 };

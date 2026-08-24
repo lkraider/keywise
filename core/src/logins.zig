@@ -4,6 +4,9 @@ const std = @import("std");
 const sdr = @import("sdr.zig");
 const keydb = @import("keydb.zig");
 
+pub const Error = error{ NoLoginsArray, MalformedJson } || std.mem.Allocator.Error;
+pub const RevealError = error{ LegacyTripleDes, NoSdrKey, TooLarge } || std.base64.Error || sdr.Error;
+
 /// `account_credential`'s password is Mozilla Account sync key material.
 /// Whoever reads it holds the account. `extension` marks a row an add-on
 /// saved for itself.
@@ -46,7 +49,7 @@ fn classify(hostname: []const u8) Kind {
 /// Decrypts a base64 SDR field into `out`. The blob names its own cipher,
 /// so this reads the cipher before it asks for a key. A profile carrying
 /// only a 3DES key then reports `LegacyTripleDes`.
-fn decryptField(b64: []const u8, keys: keydb.Keys, scratch: []u8, out: []u8) ![]u8 {
+fn decryptField(b64: []const u8, keys: keydb.Keys, scratch: []u8, out: []u8) RevealError![]u8 {
     const decoder = std.base64.standard.Decoder;
     const n = try decoder.calcSizeForSlice(b64);
     if (n > scratch.len) return error.TooLarge;
@@ -61,12 +64,19 @@ fn decryptField(b64: []const u8, keys: keydb.Keys, scratch: []u8, out: []u8) ![]
 /// Walks every entry in logins.json, decrypting each username now and
 /// keeping each password's base64 blob for a later `Store.reveal`. `gpa`
 /// owns the returned entries and every string they hold.
-pub fn scan(gpa: std.mem.Allocator, json_bytes: []const u8, keys: keydb.Keys) !ScanResult {
-    const parsed = try std.json.parseFromSlice(std.json.Value, gpa, json_bytes, .{});
+pub fn scan(gpa: std.mem.Allocator, json_bytes: []const u8, keys: keydb.Keys) Error!ScanResult {
+    const parsed = std.json.parseFromSlice(std.json.Value, gpa, json_bytes, .{}) catch |e| switch (e) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.MalformedJson,
+    };
     defer parsed.deinit();
 
-    const logins = switch (parsed.value) {
-        .object => |o| (o.get("logins") orelse return error.NoLoginsArray).array,
+    const logins_val = switch (parsed.value) {
+        .object => |o| o.get("logins") orelse return error.NoLoginsArray,
+        else => return error.NoLoginsArray,
+    };
+    const logins = switch (logins_val) {
+        .array => |a| a,
         else => return error.NoLoginsArray,
     };
 
@@ -162,6 +172,6 @@ pub fn scan(gpa: std.mem.Allocator, json_bytes: []const u8, keys: keydb.Keys) !S
 }
 
 /// Decrypts one entry's password. Never called at load time.
-pub fn revealPassword(entry: Entry, keys: keydb.Keys, scratch: []u8, out: []u8) ![]u8 {
+pub fn revealPassword(entry: Entry, keys: keydb.Keys, scratch: []u8, out: []u8) RevealError![]u8 {
     return decryptField(entry.encrypted_password, keys, scratch, out);
 }

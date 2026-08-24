@@ -70,7 +70,7 @@ fn mapCommonError(err: anyerror) keywise_status {
     return switch (err) {
         error.OpenFailed => .err_no_profile,
         error.OutOfMemory => .err_oom,
-        error.MissingPasswordRow, error.QueryFailed, error.NoSdrKey, error.NoLoginsArray => .err_open,
+        error.MissingPasswordRow, error.QueryFailed, error.NoSdrKey, error.KeyUnwrapFailed, error.NoLoginsArray, error.MalformedJson, error.LoginsUnreadable => .err_open,
         else => .err_io,
     };
 }

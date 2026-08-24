@@ -59,6 +59,28 @@ bytes. 108 of them sit in the cell and 492 on one overflow page. A reader that c
 holds `(position * 7) % 251`, so `core/src/tests.zig` asserts every byte, and
 the system sqlite3 reads the file, so `core/test/oracle.zig` covers it too.
 
+`scripts/test-mkfixtures.py random` writes `random.db` through Python's own
+`sqlite3`. A fixed seed controls every choice, so two runs write the same bytes.
+Five tables carry random column counts and type affinities. Each table starts
+with 30 rows, gains a column through `ALTER TABLE ADD COLUMN`, then gains 10
+more rows. The first 30 rows have records that stop before the added column.
+Values span nulls, zero-length blobs, integers at the serial-type boundaries,
+floats, text, and blobs up to 200 bytes. `core/test/oracle.zig` diffs the record
+decoder against the system sqlite3 over these column shapes.
+
+`scripts/test-mkfixtures.py synthetic` writes two fixtures through Python's
+`sqlite3`. Both carry the `metaData` schema and the password-check row
+copied verbatim from `core/testdata/fresh/key4.db`, so no test needs an
+encryptor. The empty Primary Password passes the password check.
+
+| Fixture | What it omits | Expected error |
+|---|---|---|
+| `no-password-row/key4.db` | the `id = 'password'` row in `metaData` | `MissingPasswordRow` |
+| `no-key-row/key4.db` | every row in `nssPrivate` | `NoSdrKey` |
+
+`core/test/oracle.zig` reads both files, so the record decoder is diffed
+against the system sqlite3 there too.
+
 Some fixtures have hand-written parts. Every such edit stays outside the
 encrypted bytes, so the crypto in each fixture is still Firefox's own
 output.
@@ -95,6 +117,7 @@ python3 scripts/test-mkfixtures.py overflow
 python3 scripts/test-mkfixtures.py fanout
 python3 scripts/test-mkfixtures.py page64k
 python3 scripts/test-mkfixtures.py reserved
+python3 scripts/test-mkfixtures.py random
 ```
 
 `core/src/tests.zig` asserts each fixture's password-check decrypts under its

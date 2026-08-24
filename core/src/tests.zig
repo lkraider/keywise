@@ -8,6 +8,8 @@ const pbes2 = @import("pbes2.zig");
 const sdr = @import("sdr.zig");
 const keydb = @import("keydb.zig");
 const sqlitedb = @import("sqlitedb.zig");
+const store = @import("store.zig");
+const messages = @import("messages.zig");
 
 test {
     _ = @import("profiles.zig");
@@ -477,6 +479,114 @@ test "profiles.enumerate on two-profiles finds the one with no key4.db" {
     try testing.expectEqual(@as(usize, 1), with_key4);
 }
 
+test "sdr.parse, pbes2.parse and pbes2.unwrap do not panic on mutated DER blobs" {
+    const blobs = [_][]const u8{
+        &hex("30430410f8000000000000000000000000000001" ++
+            "301d060960864801650304012a" ++
+            "0410000102030405060708090a0b0c0d0e0f" ++
+            "0410aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        &hex("303a0410f8000000000000000000000000000001" ++
+            "3014" ++ "06082a864886f70d0307" ++ "04080001020304050607" ++
+            "0410aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        &hex("30430410f8000000000000000000000000000001" ++
+            "301d060960864801650304012a" ++
+            "0410aff746a5e8fbc81eeda1ea77890d8169" ++
+            "0410a85a33da899c6e4f8c92a5e91c35b7f3"),
+    };
+
+    var prng = std.Random.DefaultPrng.init(0xdeadbeef_cafebabe);
+    const rand = prng.random();
+
+    var buf: [256]u8 = undefined;
+    var out: [256]u8 = undefined;
+    const global_salt: [20]u8 = @splat(0);
+
+    for (blobs) |original| {
+        for (0..256) |_| {
+            @memcpy(buf[0..original.len], original);
+            buf[rand.intRangeLessThan(usize, 0, original.len)] = rand.int(u8);
+            _ = sdr.parse(buf[0..original.len]) catch {};
+            _ = pbes2.parse(buf[0..original.len]) catch {};
+            _ = pbes2.unwrap(buf[0..original.len], &global_salt, "", &out) catch {};
+
+            const trunc_len = rand.intRangeAtMost(usize, 0, original.len);
+            _ = sdr.parse(original[0..trunc_len]) catch {};
+            _ = pbes2.parse(original[0..trunc_len]) catch {};
+            _ = pbes2.unwrap(original[0..trunc_len], &global_salt, "", &out) catch {};
+
+            @memcpy(buf[0..original.len], original);
+            const ext = original.len + rand.intRangeLessThan(usize, 1, 65);
+            for (buf[original.len..ext]) |*b| b.* = rand.int(u8);
+            _ = sdr.parse(buf[0..ext]) catch {};
+            _ = pbes2.parse(buf[0..ext]) catch {};
+            _ = pbes2.unwrap(buf[0..ext], &global_salt, "", &out) catch {};
+        }
+    }
+}
+
+test "byte-flip explorer: keydb.load and sqlitedb do not panic on mutated fixtures" {
+    const seed: u64 = 0xa5a5a5a5_5a5a5a5a;
+    var prng = std.Random.DefaultPrng.init(seed);
+    const rand = prng.random();
+
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const cwd = std.Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var path_buf: [64]u8 = undefined;
+    const tmp_file = std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/mutant.db", .{&tmp.sub_path}) catch unreachable;
+
+    {
+        const original = try cwd.readFileAlloc(io, "core/testdata/fresh/key4.db", testing.allocator, .unlimited);
+        defer testing.allocator.free(original);
+
+        const buf = try testing.allocator.alloc(u8, original.len);
+        defer testing.allocator.free(buf);
+
+        for (0..64) |i| {
+            std.debug.print("seed=0x{x} key4.db {d}/64\n", .{ seed, i });
+            @memcpy(buf, original);
+            buf[rand.intRangeLessThan(usize, 0, original.len)] = rand.int(u8);
+            try tmp.dir.writeFile(io, .{ .sub_path = "mutant.db", .data = buf });
+            _ = keydb.load(io, tmp_file, "") catch continue;
+        }
+    }
+
+    const small = [_]struct { path: []const u8, table_name: []const u8 }{
+        .{ .path = "core/testdata/reserved.db", .table_name = "wide" },
+        .{ .path = "core/testdata/fanout.db", .table_name = "metaData" },
+    };
+
+    for (small) |fixture| {
+        const original = try cwd.readFileAlloc(io, fixture.path, testing.allocator, .unlimited);
+        defer testing.allocator.free(original);
+
+        const buf = try testing.allocator.alloc(u8, original.len);
+        defer testing.allocator.free(buf);
+
+        for (0..256) |i| {
+            std.debug.print("seed=0x{x} {s} {d}/256\n", .{ seed, fixture.path, i });
+            @memcpy(buf, original);
+            buf[rand.intRangeLessThan(usize, 0, original.len)] = rand.int(u8);
+            try tmp.dir.writeFile(io, .{ .sub_path = "mutant.db", .data = buf });
+
+            var db = sqlitedb.Db.open(io, tmp_file) catch continue;
+            defer db.close();
+
+            var row_buf: [4096]u8 = undefined;
+            const tbl = db.table(fixture.table_name, &row_buf) catch continue;
+            var it = tbl.rows(&db, &row_buf);
+            while (it.next() catch null) |row| {
+                for (0..8) |col| _ = row.column(col);
+            }
+        }
+    }
+}
+
 // `zig build test --fuzz` mutates the DER blobs in the corpus below (an
 // AES-256 SDR blob, a des_ede3_cbc one, and one decoded out of the fresh
 // fixture's encryptedUsername) and feeds every mutation to der.Reader
@@ -514,4 +624,99 @@ fn fuzzParsers(_: void, smith: *testing.Smith) anyerror!void {
     const data = buf[0..n];
     _ = sdr.parse(data) catch {};
     _ = pbes2.parse(data) catch {};
+}
+
+test "messages.friendly covers every error in store.Error and store.RevealError" {
+    const sets = .{
+        @typeInfo(store.Error).error_set.?,
+        @typeInfo(store.RevealError).error_set.?,
+    };
+    inline for (sets) |errors| {
+        inline for (errors) |e| {
+            const err = @field(anyerror, e.name);
+            const text = messages.friendly(err);
+            if (std.mem.eql(u8, text, messages.unexpected)) {
+                std.debug.print("messages.friendly has no arm for error.{s}\n", .{e.name});
+                return error.MissingMessageArm;
+            }
+        }
+    }
+}
+
+test "logins.scan rejects an object value for the logins key" {
+    const logins = @import("logins.zig");
+    const keys: keydb.Keys = .{};
+    try testing.expectError(error.NoLoginsArray, logins.scan(testing.allocator,
+        \\{"logins": {}}
+    , keys));
+}
+
+test "logins.scan rejects malformed JSON" {
+    const logins = @import("logins.zig");
+    const keys: keydb.Keys = .{};
+    try testing.expectError(error.MalformedJson, logins.scan(testing.allocator, "not json at all", keys));
+}
+
+test "logins.scan rejects an object with no logins key" {
+    const logins = @import("logins.zig");
+    const keys: keydb.Keys = .{};
+    try testing.expectError(error.NoLoginsArray, logins.scan(testing.allocator,
+        \\{"other": []}
+    , keys));
+}
+
+test "pbes2 rejects a key_len other than 32" {
+    var blob = hex("308182306E06092A864886F70D01050D3061304206092A864886F70D01050C30" ++
+        "35042087E7510D9573FAC37B76B335B4404A3B8C088B1A7B80AA01FCA56A3F87" ++
+        "FBB7D702022710020120300A06082A864886F70D0209301B0609608648016503" ++
+        "04012A040E9C99693DDEF51F20FE260E1FD5790410155C6C52F21267D0E27A5E" ++
+        "64315CB340");
+    blob[73] = 0x10;
+    var out: [256]u8 = undefined;
+    const global_salt = hex("661C366FD887564582212421FC6E1388A4F37714EFA99166B3AE3D767079E607" ++
+        "6FFA02718064165695084DAE22EDB6E9");
+    try testing.expectError(error.UnsupportedKeyLen, pbes2.unwrap(&blob, &global_salt, "", &out));
+}
+
+test "pbes2 rejects zero iterations" {
+    var blob = hex("308182306E06092A864886F70D01050D3061304206092A864886F70D01050C30" ++
+        "35042087E7510D9573FAC37B76B335B4404A3B8C088B1A7B80AA01FCA56A3F87" ++
+        "FBB7D702022710020120300A06082A864886F70D0209301B0609608648016503" ++
+        "04012A040E9C99693DDEF51F20FE260E1FD5790410155C6C52F21267D0E27A5E" ++
+        "64315CB340");
+    blob[69] = 0x00;
+    blob[70] = 0x00;
+    var out: [256]u8 = undefined;
+    const global_salt = hex("661C366FD887564582212421FC6E1388A4F37714EFA99166B3AE3D767079E607" ++
+        "6FFA02718064165695084DAE22EDB6E9");
+    try testing.expectError(error.WeakParameters, pbes2.unwrap(&blob, &global_salt, "", &out));
+}
+
+test "keydb.load rejects a database in WAL mode" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const cwd = std.Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const original = try cwd.readFileAlloc(io, "core/testdata/fresh/key4.db", testing.allocator, .unlimited);
+    defer testing.allocator.free(original);
+
+    original[18] = 2;
+    try tmp.dir.writeFile(io, .{ .sub_path = "key4.db", .data = original });
+
+    var path_buf: [128]u8 = undefined;
+    const tmp_path = std.fmt.bufPrint(&path_buf, ".zig-cache/tmp/{s}/key4.db", .{&tmp.sub_path}) catch unreachable;
+
+    try testing.expectError(error.WalJournal, keydb.load(io, tmp_path, ""));
+}
+
+test "a key4.db with no password-check row returns MissingPasswordRow" {
+    try testing.expectError(error.MissingPasswordRow, loadKeys("core/testdata/no-password-row/key4.db", ""));
+}
+
+test "a key4.db with no key row returns NoSdrKey" {
+    try testing.expectError(error.NoSdrKey, loadKeys("core/testdata/no-key-row/key4.db", ""));
 }
