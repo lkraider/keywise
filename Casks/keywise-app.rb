@@ -1,5 +1,5 @@
 cask "keywise-app" do
-  version "2.0.0"
+  version "2.1.0"
   # This is CI's hash. The zip holds the Swift binary, and its LC_UUID
   # follows the macOS SDK installed on the build machine, so a local run
   # writes a different SHA-256. CI builds the asset a release uploads. Read
