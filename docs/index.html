@@ -112,6 +112,13 @@
     font-size: 0.82em;
     color: var(--muted);
   } /* NEW: the mechanism half of each "What it does" item */
+  h3 {
+    font-size: 1em;
+    font-weight: 600;
+    margin: 1.8em 0 0.6em;
+  }
+  h3 a.anchor { text-decoration: none; color: var(--rule); margin-left: 0.3em; font-weight: 400; }
+  h3 a.anchor:hover { color: var(--muted); }
   hr {
     border: none;
     border-top: 1px solid var(--rule);
@@ -170,18 +177,21 @@
 
   <h2>Install</h2>
 
+  <h3 id="macos">macOS <a class="anchor" href="#macos">#</a></h3>
   <pre><code>brew tap lkraider/keywise https://github.com/lkraider/keywise
 brew install lkraider/keywise/keywise             # the terminal UI
 brew install --cask lkraider/keywise/keywise-app  # the macOS app</code></pre>
   <p>The app is ad-hoc signed, so Gatekeeper blocks a first launch. Right-click it in Finder and choose Open. Clearing the quarantine flag works too: <code>xattr -cr /Applications/Keywise.app</code></p>
 
+  <h3 id="linux">Linux <a class="anchor" href="#linux">#</a></h3>
   <pre><code><a href="https://github.com/lkraider/keywise/releases/latest/download/keywise-x86_64-linux.tar.gz">keywise-x86_64-linux.tar.gz</a>
 <a href="https://github.com/lkraider/keywise/releases/latest/download/keywise-aarch64-linux.tar.gz">keywise-aarch64-linux.tar.gz</a></code></pre>
-  <p>On Linux, download the file for your architecture, then <code>tar -xzf</code> it. The binary is static, so it runs on any distro.</p>
+  <p>Download the file for your architecture, then <code>tar -xzf</code> it. The binary is static, so it runs on any distro.</p>
 
-  <pre><code>Keywise-&lt;version&gt;-windows-arm64.zip
-Keywise-&lt;version&gt;-windows-x86_64.zip</code></pre>
-  <p>On Windows, download the file for your architecture from the <a href="https://github.com/lkraider/keywise/releases/latest">latest release</a> and unzip it. It is unsigned, so SmartScreen shows a warning on first launch. Choose More info, then Run anyway.</p>
+  <h3 id="windows">Windows <a class="anchor" href="#windows">#</a></h3>
+  <pre><code>scoop bucket add keywise https://github.com/lkraider/keywise
+scoop install keywise</code></pre>
+  <p>Install with <a href="https://scoop.sh/">Scoop</a>. Or download the zip for your architecture from the <a href="https://github.com/lkraider/keywise/releases/latest">latest release</a> and unzip it. The exe is unsigned, so SmartScreen shows a warning on first launch. Choose More info, then Run anyway.</p>
 
   <hr>
 
