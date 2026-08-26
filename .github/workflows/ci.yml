@@ -194,8 +194,11 @@ jobs:
           echo "- \`x86_64-linux-musl\` built on \`ubuntu-latest\`: \`$sum\`" >> "$GITHUB_STEP_SUMMARY"
           echo "sum=$sum" >> "$GITHUB_OUTPUT"
 
-      - name: Drive the paths that run without a terminal
+      - name: Drive the non-interactive Linux paths
         run: ./scripts/linux-launch-check.sh zig-out/bin/keywise
+
+      - name: Drive the interactive Linux TUI through a PTY
+        run: python3 scripts/linux-tui-check.py zig-out/bin/keywise
 
   linux-arm-test:
     # Runs the aarch64 binary a release ships. ubuntu-24.04-arm is free for a
@@ -238,8 +241,11 @@ jobs:
           echo "- \`aarch64-linux-musl\` built on \`ubuntu-24.04-arm\`: \`$sum\`" >> "$GITHUB_STEP_SUMMARY"
           echo "sum=$sum" >> "$GITHUB_OUTPUT"
 
-      - name: Drive the paths that run without a terminal
+      - name: Drive the non-interactive Linux paths
         run: ./scripts/linux-launch-check.sh zig-out/bin/keywise
+
+      - name: Drive the interactive Linux TUI through a PTY
+        run: python3 scripts/linux-tui-check.py zig-out/bin/keywise
 
   compare-sums:
     # Asserts that every build host produced the same exe. reproducible-build,
