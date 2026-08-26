@@ -72,7 +72,11 @@ fn parseSections(gpa: std.mem.Allocator, ini: []const u8) std.mem.Allocator.Erro
         if (line.len == 0) continue;
 
         if (line.len >= 2 and line[0] == '[' and line[line.len - 1] == ']') {
-            try sections.append(gpa, .{ .name = name, .fields = try fields.toOwnedSlice(gpa) });
+            const owned_fields = try fields.toOwnedSlice(gpa);
+            sections.append(gpa, .{ .name = name, .fields = owned_fields }) catch |err| {
+                gpa.free(owned_fields);
+                return err;
+            };
             name = std.mem.trim(u8, line[1 .. line.len - 1], "]");
             continue;
         }
@@ -83,7 +87,11 @@ fn parseSections(gpa: std.mem.Allocator, ini: []const u8) std.mem.Allocator.Erro
             .value = std.mem.trim(u8, line[eq + 1 ..], " \t"),
         });
     }
-    try sections.append(gpa, .{ .name = name, .fields = try fields.toOwnedSlice(gpa) });
+    const owned_fields = try fields.toOwnedSlice(gpa);
+    sections.append(gpa, .{ .name = name, .fields = owned_fields }) catch |err| {
+        gpa.free(owned_fields);
+        return err;
+    };
 
     return sections.toOwnedSlice(gpa);
 }
@@ -169,10 +177,11 @@ pub fn enumerate(gpa: std.mem.Allocator, firefox_dir: []const u8, ini: []const u
             if (std.mem.eql(u8, f.key, "Path") and f.value.len > 0) path = f.value;
         }
         const p = path orelse continue;
-        try profiles.append(gpa, .{
-            .name = try gpa.dupe(u8, name),
-            .path = try resolvePath(gpa, firefox_dir, p),
-        });
+        const owned_name = try gpa.dupe(u8, name);
+        errdefer gpa.free(owned_name);
+        const owned_path = try resolvePath(gpa, firefox_dir, p);
+        errdefer gpa.free(owned_path);
+        try profiles.append(gpa, .{ .name = owned_name, .path = owned_path });
     }
 
     return profiles.toOwnedSlice(gpa);
@@ -298,4 +307,31 @@ test "malformed sections and empty profile paths are ignored" {
     const listed = try enumerate(std.testing.allocator, "/firefox", "[Profile0]\nPath=\n");
     defer std.testing.allocator.free(listed);
     try std.testing.expectEqual(@as(usize, 0), listed.len);
+}
+
+fn enumerateAllocationFailures(gpa: std.mem.Allocator) !void {
+    const ini =
+        \\[Profile0]
+        \\Name=first
+        \\Path=Profiles/first
+        \\[Profile1]
+        \\Name=second
+        \\Path=Profiles/second
+    ;
+    const listed = try enumerate(gpa, "/firefox", ini);
+    defer {
+        for (listed) |p| {
+            gpa.free(p.name);
+            gpa.free(p.path);
+        }
+        gpa.free(listed);
+    }
+}
+
+test "profile enumeration frees every partial allocation on failure" {
+    try std.testing.checkAllAllocationFailures(
+        std.testing.allocator,
+        enumerateAllocationFailures,
+        .{},
+    );
 }

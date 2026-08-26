@@ -14,7 +14,6 @@ pub const Kind = logins.Kind;
 
 pub const Store = struct {
     arena: std.heap.ArenaAllocator,
-    profile_path: []const u8,
     keys: keydb.Keys,
     entries: []Entry,
     tombstones_skipped: usize,
@@ -34,7 +33,8 @@ pub const Store = struct {
         const gpa = arena_state.allocator();
 
         const key4 = try std.fmt.allocPrint(gpa, "{s}/key4.db", .{profile_path});
-        const keys = try keydb.load(io, key4, password);
+        var keys = try keydb.load(io, key4, password);
+        defer std.crypto.secureZero(u8, std.mem.asBytes(&keys));
 
         const cwd = std.Io.Dir.cwd();
         const logins_path = try std.fmt.allocPrint(gpa, "{s}/logins.json", .{profile_path});
@@ -42,7 +42,6 @@ pub const Store = struct {
             error.OutOfMemory => return error.OutOfMemory,
             error.FileNotFound => return .{
                 .arena = arena_state,
-                .profile_path = try gpa.dupe(u8, profile_path),
                 .keys = keys,
                 .entries = &.{},
                 .tombstones_skipped = 0,
@@ -52,11 +51,10 @@ pub const Store = struct {
             else => return error.LoginsUnreadable,
         };
 
-        const result = try logins.scan(gpa, json, keys);
+        const result = try logins.scan(gpa, json, &keys);
 
         return .{
             .arena = arena_state,
-            .profile_path = try gpa.dupe(u8, profile_path),
             .keys = keys,
             .entries = result.entries,
             .tombstones_skipped = result.tombstones_skipped,
@@ -95,7 +93,7 @@ pub const Store = struct {
     /// Decrypts entry `index`'s password into `out`. Returns
     /// `error.LegacyTripleDes` for an entry this project cannot decrypt.
     pub fn reveal(self: *const Store, index: usize, scratch: []u8, out: []u8) RevealError![]u8 {
-        return logins.revealPassword(self.entries[index], self.keys, scratch, out);
+        return logins.revealPassword(self.entries[index], &self.keys, scratch, out);
     }
 };
 

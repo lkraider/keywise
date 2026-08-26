@@ -28,8 +28,13 @@ int main(int argc, char **argv) {
     printf("  profile %u path length: %zu\n", i, needed);
   }
 
-  keywise_store *store = NULL;
-  keywise_status st = keywise_open(profile_path, &store);
+  keywise_store *store = (keywise_store *)profile_path;
+  keywise_status st = keywise_open(NULL, &store);
+  if (st != KEYWISE_ERR_NO_PROFILE || store != NULL) {
+    fprintf(stderr, "FAIL: failed keywise_open did not clear its output\n");
+    return 1;
+  }
+  st = keywise_open(profile_path, &store);
   if (st != KEYWISE_OK && st != KEYWISE_ERR_NEEDS_PASSWORD) {
     return fail("keywise_open", st);
   }
@@ -74,8 +79,13 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    char *secret = NULL;
-    size_t secret_len = 0;
+    char *secret = (char *)profile_path;
+    size_t secret_len = 1;
+    st = keywise_reveal(store, UINT32_MAX, &secret, &secret_len);
+    if (st != KEYWISE_ERR_RANGE || secret != NULL || secret_len != 0) {
+      fprintf(stderr, "FAIL: failed keywise_reveal did not clear its outputs\n");
+      return 1;
+    }
     st = keywise_reveal(store, 0, &secret, &secret_len);
     if (st == KEYWISE_OK) {
       printf("revealed length: %zu\n", secret_len);

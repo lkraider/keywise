@@ -77,12 +77,14 @@ fn seedHash(global_salt: []const u8, password: []const u8, out: []u8) Error!void
     switch (global_salt.len) {
         20 => {
             var h = std.crypto.hash.Sha1.init(.{});
+            defer std.crypto.secureZero(u8, std.mem.asBytes(&h));
             h.update(global_salt);
             h.update(password);
             h.final(out[0..20]);
         },
         48 => {
             var h = std.crypto.hash.sha2.Sha384.init(.{});
+            defer std.crypto.secureZero(u8, std.mem.asBytes(&h));
             h.update(global_salt);
             h.update(password);
             h.final(out[0..48]);
@@ -137,5 +139,5 @@ pub fn unwrap(
     defer std.crypto.secureZero(u8, &key);
     try deriveKey(p, global_salt, password, &key);
 
-    return aescbc.decrypt(out, p.ciphertext, key, p.iv);
+    return aescbc.decrypt(out, p.ciphertext, &key, p.iv);
 }

@@ -132,6 +132,7 @@ export fn keywise_profile_at(i: u32, buf: ?[*]u8, cap: usize, needed: ?*usize) c
 
 export fn keywise_open(profile_path_c: ?[*:0]const u8, out: ?*?*CStore) callconv(.c) keywise_status {
     const out_ptr = out orelse return .err_range;
+    out_ptr.* = null;
     const profile_path_z = profile_path_c orelse return .err_no_profile;
     const profile_path = std.mem.span(profile_path_z);
 
@@ -147,7 +148,7 @@ export fn keywise_open(profile_path_c: ?[*:0]const u8, out: ?*?*CStore) callconv
     };
 
     const io = cstore.threaded.io();
-    const opened = store_mod.Store.open(gpa, io, cstore.profile_path, "") catch |err| {
+    cstore.store = store_mod.Store.open(gpa, io, cstore.profile_path, "") catch |err| {
         const status = mapOpenError(err);
         if (status == .err_needs_password) {
             // The handle stays alive for the keywise_unlock call that follows.
@@ -161,7 +162,6 @@ export fn keywise_open(profile_path_c: ?[*:0]const u8, out: ?*?*CStore) callconv
         }
         return status;
     };
-    cstore.store = opened;
     out_ptr.* = cstore;
     return .ok;
 }
@@ -171,8 +171,7 @@ export fn keywise_unlock(handle: ?*CStore, pw: ?[*]const u8, pw_len: usize) call
     if (cstore.store != null) return .ok;
     const password = if (pw) |p| p[0..pw_len] else "";
     const io = cstore.threaded.io();
-    const opened = store_mod.Store.open(cstore.gpa, io, cstore.profile_path, password) catch |err| return mapUnlockError(err);
-    cstore.store = opened;
+    cstore.store = store_mod.Store.open(cstore.gpa, io, cstore.profile_path, password) catch |err| return mapUnlockError(err);
     return .ok;
 }
 
@@ -247,6 +246,8 @@ export fn keywise_entries(handle: ?*CStore, out: ?[*]keywise_entry, cap: usize) 
 }
 
 export fn keywise_reveal(handle: ?*CStore, i: u32, out: ?*?[*]u8, len: ?*usize) callconv(.c) keywise_status {
+    if (out) |out_ptr| out_ptr.* = null;
+    if (len) |len_ptr| len_ptr.* = 0;
     const cstore = handle orelse return .err_range;
     const s = cstore.store orelse return .err_needs_password;
     if (i >= s.entries.len) return .err_range;
@@ -258,7 +259,7 @@ export fn keywise_reveal(handle: ?*CStore, i: u32, out: ?*?[*]u8, len: ?*usize) 
     var decrypted: [8192]u8 = undefined;
     defer std.crypto.secureZero(u8, &decrypted);
 
-    const plain = logins.revealPassword(s.entries[i], s.keys, &scratch, &decrypted) catch |err| {
+    const plain = logins.revealPassword(s.entries[i], &s.keys, &scratch, &decrypted) catch |err| {
         return switch (err) {
             error.LegacyTripleDes => .err_legacy_3des,
             else => .err_open,

@@ -80,6 +80,7 @@ pub fn load(io: std.Io, path: []const u8, password: []const u8) Error!Keys {
     // the password before any key material is unwrapped.
     if (check_len != 0) {
         var out: [256]u8 = undefined;
+        defer std.crypto.secureZero(u8, &out);
         const plain = pbes2.unwrap(check_buf[0..check_len], global_salt, password, &out) catch |e| switch (e) {
             error.BadPadding => return error.WrongPassword,
             else => return e,
@@ -88,6 +89,7 @@ pub fn load(io: std.Io, path: []const u8, password: []const u8) Error!Keys {
     }
 
     var keys: Keys = .{};
+    defer std.crypto.secureZero(u8, std.mem.asBytes(&keys));
     {
         const nss = db.table("nssPrivate", &buf) catch return error.QueryFailed;
         const a0_col = nss.columnIndex("a0") catch return error.QueryFailed;

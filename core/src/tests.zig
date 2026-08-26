@@ -37,7 +37,7 @@ test "aes-256-cbc matches NIST SP 800-38A F.2.6" {
     const want = hex("6bc1bee22e409f96e93d7e117393172a" ++ "ae2d8a571e03ac9c9eb76fac45af8e51");
 
     var out: [32]u8 = undefined;
-    try aescbc.decryptRaw(&out, &ct, key, iv);
+    try aescbc.decryptRaw(&out, &ct, &key, iv);
     try testing.expectEqualSlices(u8, &want, &out);
 }
 
@@ -48,13 +48,13 @@ test "pkcs7 padding is stripped and validated" {
     const ct = hex("3bc29a16024812f18539438a650d4acd");
 
     var out: [16]u8 = undefined;
-    const plain = try aescbc.decrypt(&out, &ct, key, iv);
+    const plain = try aescbc.decrypt(&out, &ct, &key, iv);
     try testing.expectEqualStrings("hi", plain);
 
     // A wrong key yields padding that does not validate.
     var bad_key = key;
     bad_key[0] ^= 1;
-    try testing.expectError(error.BadPadding, aescbc.decrypt(&out, &ct, bad_key, iv));
+    try testing.expectError(error.BadPadding, aescbc.decrypt(&out, &ct, &bad_key, iv));
 }
 
 test "der reader walks a nested sequence" {
@@ -112,8 +112,9 @@ test "a 3des entry reports the migration error and returns no plaintext" {
     const blob = try sdr.parse(&buf);
     try testing.expectEqual(oids.Cipher.des_ede3_cbc, blob.cipher);
 
+    const key: [32]u8 = @splat(0);
     var out: [16]u8 = undefined;
-    try testing.expectError(error.LegacyTripleDes, sdr.decrypt(blob, @splat(0), &out));
+    try testing.expectError(error.LegacyTripleDes, sdr.decrypt(blob, &key, &out));
 }
 
 fn freeScanResult(gpa: std.mem.Allocator, result: anytype) void {
@@ -139,7 +140,7 @@ test "logins.scan marks a 3des-only entry legacy_3des" {
         \\}]}
     ;
     const keys: keydb.Keys = .{ .aes256 = null, .des3 = @splat(0) };
-    const result = try logins.scan(testing.allocator, json, keys);
+    const result = try logins.scan(testing.allocator, json, &keys);
     defer freeScanResult(testing.allocator, result);
 
     try testing.expectEqual(@as(usize, 1), result.entries.len);
@@ -198,7 +199,7 @@ test "the fresh fixture decrypts every entry with an empty Primary Password" {
     defer testing.allocator.free(json);
 
     const keys = try loadKeys("core/testdata/fresh/key4.db", "");
-    const result = try logins.scan(testing.allocator, json, keys);
+    const result = try logins.scan(testing.allocator, json, &keys);
     defer freeScanResult(testing.allocator, result);
 
     try testing.expectEqual(@as(usize, 3), result.entries.len);
@@ -211,6 +212,28 @@ test "the fresh fixture decrypts every entry with an empty Primary Password" {
     }
 }
 
+fn scanAllocationFailures(
+    gpa: std.mem.Allocator,
+    json: []const u8,
+    keys: *const keydb.Keys,
+) !void {
+    const logins = @import("logins.zig");
+    const result = try logins.scan(gpa, json, keys);
+    defer freeScanResult(gpa, result);
+}
+
+test "logins.scan frees every partial allocation on failure" {
+    const json = try readFixtureLogins(testing.allocator, "core/testdata/fresh/logins.json");
+    defer testing.allocator.free(json);
+
+    const keys = try loadKeys("core/testdata/fresh/key4.db", "");
+    try testing.checkAllAllocationFailures(
+        testing.allocator,
+        scanAllocationFailures,
+        .{ json, &keys },
+    );
+}
+
 test "the primary fixture needs its documented Primary Password" {
     const logins = @import("logins.zig");
     const json = try readFixtureLogins(testing.allocator, "core/testdata/primary/logins.json");
@@ -220,7 +243,7 @@ test "the primary fixture needs its documented Primary Password" {
     try testing.expectError(error.WrongPassword, loadKeys("core/testdata/primary/key4.db", "wrong"));
 
     const keys = try loadKeys("core/testdata/primary/key4.db", "fixture-primary-password-1");
-    const result = try logins.scan(testing.allocator, json, keys);
+    const result = try logins.scan(testing.allocator, json, &keys);
     defer freeScanResult(testing.allocator, result);
 
     try testing.expectEqual(@as(usize, 3), result.entries.len);
@@ -262,7 +285,7 @@ test "the unmigrated fixture carries a 24-byte 3DES key and no AES-256 key" {
     try testing.expect(keys.aes256 == null);
     try testing.expect(keys.des3 != null);
 
-    const result = try logins.scan(testing.allocator, json, keys);
+    const result = try logins.scan(testing.allocator, json, &keys);
     defer freeScanResult(testing.allocator, result);
 
     try testing.expectEqual(@as(usize, 3), result.entries.len);
@@ -287,7 +310,7 @@ test "the migrated fixture carries both key rows and decrypts every entry" {
     try testing.expect(keys.aes256 != null);
     try testing.expect(keys.des3 != null);
 
-    const result = try logins.scan(testing.allocator, json, keys);
+    const result = try logins.scan(testing.allocator, json, &keys);
     defer freeScanResult(testing.allocator, result);
 
     try testing.expectEqual(@as(usize, 3), result.entries.len);
@@ -303,7 +326,7 @@ test "the sync-shaped fixture filters tombstones and labels the account and exte
     defer testing.allocator.free(json);
 
     const keys = try loadKeys("core/testdata/sync-shaped/key4.db", "");
-    const result = try logins.scan(testing.allocator, json, keys);
+    const result = try logins.scan(testing.allocator, json, &keys);
     defer freeScanResult(testing.allocator, result);
 
     // 7 rows in logins.json: 3 ordinary logins, 1 account row, 1 extension
@@ -661,13 +684,13 @@ test "logins.scan rejects an object value for the logins key" {
     const keys: keydb.Keys = .{};
     try testing.expectError(error.NoLoginsArray, logins.scan(testing.allocator,
         \\{"logins": {}}
-    , keys));
+    , &keys));
 }
 
 test "logins.scan rejects malformed JSON" {
     const logins = @import("logins.zig");
     const keys: keydb.Keys = .{};
-    try testing.expectError(error.MalformedJson, logins.scan(testing.allocator, "not json at all", keys));
+    try testing.expectError(error.MalformedJson, logins.scan(testing.allocator, "not json at all", &keys));
 }
 
 test "logins.scan rejects an object with no logins key" {
@@ -675,7 +698,7 @@ test "logins.scan rejects an object with no logins key" {
     const keys: keydb.Keys = .{};
     try testing.expectError(error.NoLoginsArray, logins.scan(testing.allocator,
         \\{"other": []}
-    , keys));
+    , &keys));
 }
 
 test "pbes2 rejects a key_len other than 32" {

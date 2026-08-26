@@ -49,7 +49,8 @@ keywise_status keywise_profile_at(uint32_t i, char *buf, size_t cap, size_t *nee
  * KEYWISE_ERR_NEEDS_PASSWORD means the profile has a Primary Password. *out is
  * a valid handle then too. keywise_unlock must succeed on it before
  * keywise_count, keywise_search, keywise_entry_at or keywise_reveal. Every handle
- * written to *out is released with keywise_close. */
+ * written to *out is released with keywise_close. Other failures set *out to
+ * NULL. */
 keywise_status keywise_open(const char *profile_path, keywise_store **out);
 keywise_status keywise_unlock(keywise_store *, const char *pw, size_t pw_len);
 void        keywise_close(keywise_store *);
@@ -67,8 +68,9 @@ keywise_status keywise_entry_at(keywise_store *, uint32_t i, keywise_entry *out)
  * FFI call per row. */
 size_t      keywise_entries(keywise_store *, keywise_entry *out, size_t cap);
 
+/* On failure, sets *out to NULL and *len to 0 when those pointers are valid. */
 keywise_status keywise_reveal(keywise_store *, uint32_t i, char **out, size_t *len);
-/* Zeroes the buffer, then frees it with the store's allocator. An
+/* Zeroes the buffer, then frees it with the store's allocator. A
  * keywise_reveal buffer is released here and nowhere else. */
 void        keywise_secret_free(keywise_store *, char *buf, size_t len);
 

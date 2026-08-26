@@ -13,16 +13,18 @@ pub const Error = error{
 pub const block_len = 16;
 
 /// Decrypts without touching padding. `out` receives exactly ct.len bytes.
-pub fn decryptRaw(out: []u8, ct: []const u8, key: [32]u8, iv: [block_len]u8) Error!void {
+pub fn decryptRaw(out: []u8, ct: []const u8, key: *const [32]u8, iv: [block_len]u8) Error!void {
     if (ct.len == 0 or ct.len % block_len != 0) return error.BadCiphertextLength;
     if (out.len < ct.len) return error.BufferTooSmall;
 
-    const ctx = Aes256.initDec(key);
+    var ctx = Aes256.initDec(key.*);
+    defer std.crypto.secureZero(u8, std.mem.asBytes(&ctx));
     var prev = iv;
     var i: usize = 0;
     while (i < ct.len) : (i += block_len) {
         const block = ct[i..][0..block_len];
         var dec: [block_len]u8 = undefined;
+        defer std.crypto.secureZero(u8, &dec);
         ctx.decrypt(&dec, block);
         for (dec, prev, 0..) |d, p, j| out[i + j] = d ^ p;
         prev = block.*;
@@ -31,7 +33,7 @@ pub fn decryptRaw(out: []u8, ct: []const u8, key: [32]u8, iv: [block_len]u8) Err
 
 /// Decrypts and strips PKCS7 padding. The returned slice aliases `out`.
 /// Firefox pads every stored value, so a padding failure means the key is wrong.
-pub fn decrypt(out: []u8, ct: []const u8, key: [32]u8, iv: [block_len]u8) Error![]u8 {
+pub fn decrypt(out: []u8, ct: []const u8, key: *const [32]u8, iv: [block_len]u8) Error![]u8 {
     try decryptRaw(out, ct, key, iv);
     const pad = out[ct.len - 1];
     if (pad == 0 or pad > block_len or pad > ct.len) return error.BadPadding;

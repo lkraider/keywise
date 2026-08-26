@@ -43,7 +43,7 @@ pub fn parse(blob: []const u8) Error!Blob {
 /// Returns a slice of `out`. Firefox 144 re-encrypted existing stores to
 /// AES-256. A des_ede3_cbc value comes from a profile that version has
 /// never opened.
-pub fn decrypt(b: Blob, key: [32]u8, out: []u8) Error![]u8 {
+pub fn decrypt(b: Blob, key: *const [32]u8, out: []u8) Error![]u8 {
     switch (b.cipher) {
         .des_ede3_cbc => return error.LegacyTripleDes,
         .aes256_cbc => {

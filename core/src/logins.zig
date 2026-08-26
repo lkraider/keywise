@@ -49,7 +49,7 @@ fn classify(hostname: []const u8) Kind {
 /// Decrypts a base64 SDR field into `out`. The blob names its own cipher,
 /// so this reads the cipher before it asks for a key. A profile carrying
 /// only a 3DES key then reports `LegacyTripleDes`.
-fn decryptField(b64: []const u8, keys: keydb.Keys, scratch: []u8, out: []u8) RevealError![]u8 {
+fn decryptField(b64: []const u8, keys: *const keydb.Keys, scratch: []u8, out: []u8) RevealError![]u8 {
     const decoder = std.base64.standard.Decoder;
     const n = try decoder.calcSizeForSlice(b64);
     if (n > scratch.len) return error.TooLarge;
@@ -57,14 +57,14 @@ fn decryptField(b64: []const u8, keys: keydb.Keys, scratch: []u8, out: []u8) Rev
 
     const blob = try sdr.parse(scratch[0..n]);
     if (blob.cipher == .des_ede3_cbc) return error.LegacyTripleDes;
-    const key = keys.aes256 orelse return error.NoSdrKey;
+    const key = if (keys.aes256) |*value| value else return error.NoSdrKey;
     return sdr.decrypt(blob, key, out);
 }
 
 /// Walks every entry in logins.json, decrypting each username now and
 /// keeping each password's base64 blob for a later `Store.reveal`. `gpa`
 /// owns the returned entries and every string they hold.
-pub fn scan(gpa: std.mem.Allocator, json_bytes: []const u8, keys: keydb.Keys) Error!ScanResult {
+pub fn scan(gpa: std.mem.Allocator, json_bytes: []const u8, keys: *const keydb.Keys) Error!ScanResult {
     const parsed = std.json.parseFromSlice(std.json.Value, gpa, json_bytes, .{}) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return error.MalformedJson,
@@ -81,7 +81,15 @@ pub fn scan(gpa: std.mem.Allocator, json_bytes: []const u8, keys: keydb.Keys) Er
     };
 
     var entries: std.ArrayList(Entry) = .empty;
-    errdefer entries.deinit(gpa);
+    errdefer {
+        for (entries.items) |entry| {
+            std.crypto.secureZero(u8, @constCast(entry.username));
+            gpa.free(entry.hostname);
+            gpa.free(entry.username);
+            gpa.free(entry.encrypted_password);
+        }
+        entries.deinit(gpa);
+    }
 
     var result: ScanResult = .{ .entries = &.{} };
 
@@ -141,13 +149,21 @@ pub fn scan(gpa: std.mem.Allocator, json_bytes: []const u8, keys: keydb.Keys) Er
         var legacy_3des = false;
         if (decryptField(encrypted_username, keys, scratch, plain)) |dec| {
             username = try gpa.dupe(u8, dec);
-        } else |err| switch (err) {
-            error.LegacyTripleDes => legacy_3des = true,
-            else => {
-                result.malformed += 1;
-                continue;
-            },
+            std.crypto.secureZero(u8, plain);
+        } else |err| {
+            std.crypto.secureZero(u8, plain);
+            switch (err) {
+                error.LegacyTripleDes => legacy_3des = true,
+                else => {
+                    result.malformed += 1;
+                    continue;
+                },
+            }
         }
+        errdefer if (username.len > 0) {
+            std.crypto.secureZero(u8, @constCast(username));
+            gpa.free(username);
+        };
 
         const time_password_changed: i64 = if (obj.get("timePasswordChanged")) |t|
             (switch (t) {
@@ -157,12 +173,16 @@ pub fn scan(gpa: std.mem.Allocator, json_bytes: []const u8, keys: keydb.Keys) Er
         else
             0;
 
+        const owned_hostname = try gpa.dupe(u8, hostname);
+        errdefer gpa.free(owned_hostname);
+        const owned_password = try gpa.dupe(u8, encrypted_password);
+        errdefer gpa.free(owned_password);
         try entries.append(gpa, .{
-            .hostname = try gpa.dupe(u8, hostname),
+            .hostname = owned_hostname,
             .username = username,
             .kind = classify(hostname),
             .legacy_3des = legacy_3des,
-            .encrypted_password = try gpa.dupe(u8, encrypted_password),
+            .encrypted_password = owned_password,
             .time_password_changed = time_password_changed,
         });
     }
@@ -172,6 +192,6 @@ pub fn scan(gpa: std.mem.Allocator, json_bytes: []const u8, keys: keydb.Keys) Er
 }
 
 /// Decrypts one entry's password. Never called at load time.
-pub fn revealPassword(entry: Entry, keys: keydb.Keys, scratch: []u8, out: []u8) RevealError![]u8 {
+pub fn revealPassword(entry: Entry, keys: *const keydb.Keys, scratch: []u8, out: []u8) RevealError![]u8 {
     return decryptField(entry.encrypted_password, keys, scratch, out);
 }
