@@ -1,8 +1,10 @@
 # Fixtures
 
-Each directory holds a `key4.db` and a `logins.json` copied out of a profile
-written by an installed Firefox driven over Marionette by
-`scripts/test-mkfixtures.py`. Every credential in every fixture is synthetic.
+Each profile fixture holds files copied out of a profile written by an
+installed Firefox. `scripts/test-mkfixtures.py` drives Firefox over Marionette
+to create the populated fixtures. Every credential is synthetic. `no-logins`
+intentionally has no `logins.json`, matching a new profile before its first
+saved login.
 
 Firefox writes these files, so a test against them checks this reader
 against Firefox's own output. A generator built from this project's own
@@ -11,6 +13,7 @@ reading of the format would only show the reader agrees with itself.
 | Fixture | Documented password | Firefox version | Covers |
 |---|---|---|---|
 | `fresh` | none (empty Primary Password) | 152.0.6 | one AES-256 key row, 3 logins |
+| `no-logins` | none (empty Primary Password) | 154.0.1 | a current, newly created profile where Firefox has not written `logins.json` yet |
 | `primary` | `fixture-primary-password-1` | 152.0.6 | a Primary Password set by the user: a 48-byte SHA384 global salt, rejection of the empty and the wrong password |
 | `two-profiles` | none | 152.0.6 | `profiles.ini` install-section precedence over the legacy `Default=1` flag |
 | `sync-shaped` | none (empty Primary Password) | 152.0.6 | a `chrome://FirefoxAccounts` row, a `moz-extension://` row, and 2 sync deletion tombstones |

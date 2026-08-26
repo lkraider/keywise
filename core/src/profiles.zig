@@ -71,7 +71,7 @@ fn parseSections(gpa: std.mem.Allocator, ini: []const u8) std.mem.Allocator.Erro
         const line = std.mem.trim(u8, raw, " \t\r");
         if (line.len == 0) continue;
 
-        if (line[0] == '[') {
+        if (line.len >= 2 and line[0] == '[' and line[line.len - 1] == ']') {
             try sections.append(gpa, .{ .name = name, .fields = try fields.toOwnedSlice(gpa) });
             name = std.mem.trim(u8, line[1 .. line.len - 1], "]");
             continue;
@@ -117,13 +117,13 @@ pub fn resolveDefault(gpa: std.mem.Allocator, firefox_dir: []const u8, ini: []co
     for (sections) |s| {
         if (std.mem.startsWith(u8, s.name, "Install")) {
             for (s.fields) |f| {
-                if (std.mem.eql(u8, f.key, "Default")) install_path = f.value;
+                if (std.mem.eql(u8, f.key, "Default") and f.value.len > 0) install_path = f.value;
             }
         } else if (std.mem.startsWith(u8, s.name, "Profile")) {
             var path: ?[]const u8 = null;
             var is_default = false;
             for (s.fields) |f| {
-                if (std.mem.eql(u8, f.key, "Path")) path = f.value;
+                if (std.mem.eql(u8, f.key, "Path") and f.value.len > 0) path = f.value;
                 if (std.mem.eql(u8, f.key, "Default") and std.mem.eql(u8, f.value, "1")) is_default = true;
             }
             if (is_default) {
@@ -166,7 +166,7 @@ pub fn enumerate(gpa: std.mem.Allocator, firefox_dir: []const u8, ini: []const u
         var path: ?[]const u8 = null;
         for (s.fields) |f| {
             if (std.mem.eql(u8, f.key, "Name")) name = f.value;
-            if (std.mem.eql(u8, f.key, "Path")) path = f.value;
+            if (std.mem.eql(u8, f.key, "Path") and f.value.len > 0) path = f.value;
         }
         const p = path orelse continue;
         try profiles.append(gpa, .{
@@ -283,4 +283,19 @@ test "resolveDir skips a root with no profiles.ini and reports the paths it trie
         error.NoFirefoxDir,
         resolveDirIn(io, gpa, "core/testdata", &.{"fresh"}),
     );
+}
+
+test "malformed sections and empty profile paths are ignored" {
+    try std.testing.expectError(
+        error.NoProfileFound,
+        resolveDefault(std.testing.allocator, "/firefox", "[\n[]\n[Profile0]\nPath=\n"),
+    );
+    try std.testing.expectError(
+        error.NoProfileFound,
+        resolveDefault(std.testing.allocator, "/firefox", "[Profile0]\nPath=\nDefault=1\n"),
+    );
+
+    const listed = try enumerate(std.testing.allocator, "/firefox", "[Profile0]\nPath=\n");
+    defer std.testing.allocator.free(listed);
+    try std.testing.expectEqual(@as(usize, 0), listed.len);
 }

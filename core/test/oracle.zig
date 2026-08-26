@@ -13,6 +13,7 @@ const testing = std.testing;
 
 const fixtures = [_][]const u8{
     "core/testdata/fresh/key4.db",
+    "core/testdata/no-logins/key4.db",
     "core/testdata/migrated/key4.db",
     "core/testdata/primary/key4.db",
     "core/testdata/sync-shaped/key4.db",

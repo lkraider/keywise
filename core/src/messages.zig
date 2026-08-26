@@ -14,7 +14,6 @@ pub fn friendly(err: anyerror) []const u8 {
         error.MalformedJson => "logins.json is not valid JSON",
         error.LoginsUnreadable => "could not read logins.json for this profile",
         error.OutOfMemory => "out of memory",
-        error.FileNotFound => "logins.json or key4.db is missing",
         error.AccessDenied => "permission denied reading this profile",
         error.UnsupportedScheme,
         error.UnsupportedPrf,

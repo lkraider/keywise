@@ -643,6 +643,19 @@ test "messages.friendly covers every error in store.Error and store.RevealError"
     }
 }
 
+test "Store.open returns an empty store when logins.json is missing" {
+    var s = try openFixture("core/testdata/no-logins", "");
+    defer s.deinit();
+
+    try testing.expectEqual(@as(usize, 0), s.entries.len);
+    try testing.expectEqual(@as(usize, 0), s.tombstones_skipped);
+    try testing.expectEqual(@as(usize, 0), s.malformed);
+
+    var out: [8]usize = undefined;
+    const count = s.search("", &out);
+    try testing.expectEqual(@as(usize, 0), count);
+}
+
 test "logins.scan rejects an object value for the logins key" {
     const logins = @import("logins.zig");
     const keys: keydb.Keys = .{};

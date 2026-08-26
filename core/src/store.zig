@@ -6,7 +6,7 @@ const std = @import("std");
 const keydb = @import("keydb.zig");
 const logins = @import("logins.zig");
 
-pub const Error = keydb.Error || logins.Error || error{ LoginsUnreadable, FileNotFound, AccessDenied } || std.mem.Allocator.Error;
+pub const Error = keydb.Error || logins.Error || error{ LoginsUnreadable, AccessDenied } || std.mem.Allocator.Error;
 pub const RevealError = logins.RevealError;
 
 pub const Entry = logins.Entry;
@@ -40,7 +40,14 @@ pub const Store = struct {
         const logins_path = try std.fmt.allocPrint(gpa, "{s}/logins.json", .{profile_path});
         const json = cwd.readFileAlloc(io, logins_path, gpa, .unlimited) catch |e| switch (e) {
             error.OutOfMemory => return error.OutOfMemory,
-            error.FileNotFound => return error.FileNotFound,
+            error.FileNotFound => return .{
+                .arena = arena_state,
+                .profile_path = try gpa.dupe(u8, profile_path),
+                .keys = keys,
+                .entries = &.{},
+                .tombstones_skipped = 0,
+                .malformed = 0,
+            },
             error.AccessDenied => return error.AccessDenied,
             else => return error.LoginsUnreadable,
         };
@@ -57,13 +64,14 @@ pub const Store = struct {
         };
     }
 
-    /// Wipes every decrypted username before freeing the arena that holds
-    /// them. `reveal` decrypts into the caller's buffer, and the caller
-    /// wipes that one.
+    /// Wipes every decrypted username and key before freeing the arena that
+    /// holds the entries. `reveal` decrypts into the caller's buffer, and the
+    /// caller wipes that one.
     pub fn deinit(self: *Store) void {
         for (self.entries) |e| {
             std.crypto.secureZero(u8, @constCast(e.username));
         }
+        std.crypto.secureZero(u8, std.mem.asBytes(&self.keys));
         self.arena.deinit();
     }
 

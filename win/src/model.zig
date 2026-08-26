@@ -534,6 +534,17 @@ test "openFirst skips the profile with no key4.db" {
     try testing.expectEqual(@as(usize, 3), m.rowCount());
 }
 
+test "a profile with key4.db but no logins.json opens with 0 logins" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    var m = testModel(&threaded);
+    defer m.deinit();
+    try openFixture(&m, "no-logins");
+
+    try testing.expectEqual(@as(usize, 0), m.rowCount());
+    try testing.expectEqualStrings("0 logins", m.status());
+}
+
 test "openFirst reports the empty list" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();

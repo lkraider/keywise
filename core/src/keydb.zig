@@ -80,8 +80,10 @@ pub fn load(io: std.Io, path: []const u8, password: []const u8) Error!Keys {
     // the password before any key material is unwrapped.
     if (check_len != 0) {
         var out: [256]u8 = undefined;
-        const plain = pbes2.unwrap(check_buf[0..check_len], global_salt, password, &out) catch
-            return error.WrongPassword;
+        const plain = pbes2.unwrap(check_buf[0..check_len], global_salt, password, &out) catch |e| switch (e) {
+            error.BadPadding => return error.WrongPassword,
+            else => return e,
+        };
         if (!std.mem.eql(u8, plain, "password-check")) return error.WrongPassword;
     }
 
