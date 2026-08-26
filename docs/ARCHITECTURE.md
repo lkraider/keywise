@@ -6,8 +6,8 @@ with it. Nothing here depends on a toolchain version.
 
 `docs/FORMAT.md` covers Firefox's on-disk format. `docs/PLATFORM.md` covers
 what the pinned Zig and the current operating systems do.
-`docs/REPRODUCIBLE.md` covers byte-identical builds. `README.md` covers usage
-and the threat model.
+`docs/REPRODUCIBLE.md` covers byte-identical builds. `docs/RELEASING.md` covers
+the release steps. `README.md` covers usage and the threat model.
 
 ## Decisions
 
@@ -66,6 +66,7 @@ scripts/                 automation and one-shot validation tools
   linux-tui-check.py      drives the Linux TUI through a controlling PTY
   release-package.sh      builds and archives every published artifact
   release-set-version.sh  writes the release version, or compares it with a tag
+  release-set-hashes.sh   writes CI hashes into the package manifests
   test-check.sh           rejects a test run that silently executed no tests
   test-mkfixtures.py      writes every fixture under core/testdata/
   win-build-hash.ps1      builds the Windows exe and records its SHA-256
