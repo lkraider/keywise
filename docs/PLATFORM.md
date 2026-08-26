@@ -7,6 +7,7 @@ line of it.
     Measured against
     Zig 0.16.0 · macOS 15.6, and the macos-15 runner at 15.7.7
     wine 11.15 under Rosetta 2 · resinator as shipped with Zig 0.16.0
+    Firefox 154.0.1 · Debian 12 aarch64 (Linux 7.0.14)
 
 ## Build
 
@@ -26,10 +27,11 @@ from another host stays out of reach.
 cask. `release.yml` runs that script's `--check` against the pushed tag, so a
 file left at the old version stops the release before it uploads anything.
 
-`linux-test` and `linux-arm-test` run `zig build test` natively. No other
-job runs the suite on Linux. `build.zig` reads `host_has_sqlite` from
-`builtin.os.tag == .macos`, so the oracle skips itself and those runners
-install no libsqlite3 headers.
+Linux release binaries are built and exercised natively on both shipped
+architectures. `scripts/linux-tui-check.py` is the executable specification for
+the terminal lifecycle; extend it when terminal behavior changes rather than
+copying its cases into this document. CI also rejects dynamically linked Linux
+release binaries.
 
 Nothing else links a C library. `zig build -Dtarget=x86_64-windows-gnu`,
 `-Dtarget=aarch64-windows-gnu`, `-Dtarget=x86_64-linux-musl` and
@@ -44,6 +46,29 @@ there. `file` calls a static PIE "static-pie linked", so a grep for
 `advapi32`, and Zig links `kernel32` for every Windows target. Zig bundles a
 `.def` file for each one under `lib/libc/mingw/lib-common/` and generates the
 import library from it, so the Win32 link needs no Windows SDK.
+
+## POSIX terminal lifecycle
+
+vaxis 0.6 opens `/dev/tty` independently of stdin/stdout, saves termios, enters
+raw mode and restores termios with `TCSAFLUSH` in `Tty.deinit`. `Vaxis.deinit`
+pops Kitty keyboard mode, disables mouse and bracketed paste, shows the cursor,
+leaves the alternate screen and flushes. `tui/src/main.zig` wraps panics with
+`vaxis.recover`, disables key-release reports it does not consume, and turns
+SIGHUP, SIGINT, SIGQUIT and SIGTERM into a clean event-loop exit before
+restoring each prior handler. Ctrl-Z and SIGTSTP first scrub visible and typed
+secrets, tear down vaxis, restore the prior SIGTSTP action and stop. After `fg`,
+the app constructs a fresh vaxis reader around the same model. The signal
+handler itself only writes a volatile `sig_atomic_t`; terminal I/O and termios
+restoration stay outside signal context.
+
+Before `App.run`, the TUI reads `TIOCGWINSZ` and seeds vaxis with that exact
+size. Only a zero row or column gets an 80x24 fallback written back with
+`TIOCSWINSZ`; valid user dimensions must never be changed. vaxis wraps every
+render in DECSET 2026 synchronized-output markers. Its current `App.run` enters
+the alternate screen before capability probing. The TUI suppresses vaxis's
+startup info log, then draws a complete loading frame before it performs SQLite
+reads or password-based key derivation. This minimizes startup blanking without
+copying or forking the framework's event loop.
 
 ## Windows
 
