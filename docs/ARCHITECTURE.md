@@ -57,14 +57,16 @@ build.zig
 tui/src/        the libvaxis TUI, imports store.zig through root.zig
 macos/          the SwiftUI app, a Swift package linking core.zig's static library
 win/src/        the Win32 app, importing the core module directly
-scripts/               every file carries the prefix of the group it serves
+scripts/                 automation and one-shot validation tools
   ci-compare-sums.sh      asserts every build host recorded one sum per target
   docs-screenshots.sh     writes the README images
   docs-social-preview.py  writes the two share cards from tui.png and icon.png
   docs-window-list.swift  lists every on-screen window and its bounds
   linux-launch-check.sh   drives the keywise paths that run without a terminal
+  linux-tui-check.py      drives the Linux TUI through a controlling PTY
   release-package.sh      builds and archives every published artifact
   release-set-version.sh  writes the release version, or compares it with a tag
+  test-check.sh           rejects a test run that silently executed no tests
   test-mkfixtures.py      writes every fixture under core/testdata/
   win-build-hash.ps1      builds the Windows exe and records its SHA-256
   win-launch-check.ps1    launches the Windows exe on a CI runner
@@ -75,8 +77,8 @@ scripts/               every file carries the prefix of the group it serves
   wine-shutdown.sh        ends a wine prefix's session and kills its helpers
 ```
 
-Every script here needs a Mac to run. A `mac-` prefix would mark every file
-in the listing above.
+Names encode their role; Linux-, Windows- and Wine-only drivers carry explicit
+platform prefixes.
 
 `docs-social-preview.py` imports Pillow. Every other Python script here reads
 the standard library alone. It also reads the two Georgia faces under
@@ -156,11 +158,11 @@ thread.
 `core/test/smoke.c` calls every function in the header in order and runs as
 `zig build smoke`.
 
-### Store.open is the one function that reads a file
+### Store.open is the one entry point that reads profile data
 
-`Store.open` is the only function that touches a file. `keydb.load` opens
-`key4.db`, reads it and closes it before returning. `Store.open` then reads
-all of `logins.json` into the arena and closes that too. `Store.reveal`
+`Store.open` is the only store operation that touches a file. `keydb.load`
+opens `key4.db`, reads it and closes it before returning. `Store.open` then
+reads all of `logins.json` into the arena and closes that too. `Store.reveal`
 decrypts from the SDR blob and the master key already in the arena.
 
 An open profile is therefore a snapshot. Firefox may rewrite either file
@@ -171,16 +173,16 @@ already selected, and `selectProfile` in `AppModel.swift` builds a fresh
 store, so choosing the same profile reloads on both. The TUI opens once
 per run.
 
-A `Store.open` that lands while Firefox writes `key4.db` returns
-`OpenFailed` or `Corrupt`, so a torn read reaches the front end as a message.
-Reaching that state needs a write to a live profile, and `docs/FORMAT.md`
-records that case as untested.
+A `Store.open` that lands while Firefox writes either file can return
+`OpenFailed`, `QueryFailed` or `MalformedJson`, so a torn read reaches the front
+end as a message. Reaching that state needs a write to a live profile, and
+`docs/FORMAT.md` records that case as untested.
 
 The decryption modules call no OS-specific API. The platform assumptions
 live in the front ends. `core.zig` and `tui/src/main.zig` find the root
 through `profiles.resolveDir`, and `win/src/main.zig` builds
-`%APPDATA%\Mozilla\Firefox`. `tui/src/main.zig` copies by running a helper
-program and `win/src/main.zig` copies through `SetClipboardData`.
+`%APPDATA%\Mozilla\Firefox`. `tui/src/main.zig` copies with OSC 52 and a
+best-effort helper; `win/src/main.zig` copies through `SetClipboardData`.
 
 ## Front-end behaviour
 
@@ -226,13 +228,12 @@ the first helper that spawns and exits 0:
 `wl-copy` connects to a Wayland compositor and fails on an X11 session.
 `xclip` and `xsel` need `$DISPLAY`, and they reach a Wayland clipboard
 through XWayland. Over SSH with no X11 forwarding, every helper fails to
-connect, and libvaxis's OSC 52 write reaches the local terminal's
-clipboard.
+connect, and keywise's OSC 52 write reaches the local terminal's clipboard.
 `wl-copy --paste-once` serves one paste request and then drops the
 clipboard, so a paste into an XWayland window returns nothing.
 
-The status line reads `copied` on every press. `wl-copy` ships in the
-`wl-clipboard` package, `xclip` in `xclip` and `xsel` in `xsel`.
+Every successful copy leaves `copied` on the status line. `wl-copy` ships in
+the `wl-clipboard` package, `xclip` in `xclip` and `xsel` in `xsel`.
 `README.md` and `keywise --help` name them.
 
 ### The stdout path
@@ -260,7 +261,7 @@ replace the one before it. The write ends with `catch {}`. A reader that
 exits first gives `error.BrokenPipe`, and a `try` would make
 `keywise | head -c 5` exit non-zero with a trace.
 
-Each platform marks a copied password so a clipboard manager skips it.
+Each native GUI marks a copied password so a clipboard manager skips it.
 macOS writes the `org.nspasteboard.ConcealedType` pasteboard type.
 `win/src/clipboard.zig` registers four formats and writes all four ahead of
 `CF_UNICODETEXT`, so a monitor reading the moment the text lands already

@@ -99,11 +99,9 @@ One run reads one of them.
 | `y` | Copy the selected password. The row stays masked. |
 | `q`, `ctrl-c` | Quit. |
 
-On Linux, `y` also tries `wl-copy`, `xclip` or `xsel` when the session has a
-Wayland or X11 display. It reports `copied` only when one of those helpers
-succeeds. Otherwise it reports that the copy was sent to the terminal with
-OSC 52; over SSH, that can reach the clipboard of the terminal you are
-sitting at.
+On Linux, `y` sends OSC 52 before it tries `wl-copy`, `xclip` or `xsel` as a
+best-effort local helper. Every successful copy reports `copied`. Over SSH,
+OSC 52 can reach the clipboard of the terminal you are sitting at.
 
 `y` also writes the password to stdout on any run where stdout is a pipe or
 a file. On a terminal it writes nothing.

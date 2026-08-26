@@ -28,10 +28,12 @@ cask. `release.yml` runs that script's `--check` against the pushed tag, so a
 file left at the old version stops the release before it uploads anything.
 
 Linux release binaries are built and exercised natively on both shipped
-architectures. `scripts/linux-tui-check.py` is the executable specification for
-the terminal lifecycle; extend it when terminal behavior changes rather than
-copying its cases into this document. CI also rejects dynamically linked Linux
-release binaries.
+architectures. `scripts/test-check.sh` runs `zig build test` on both Linux
+runners and verifies that every authored test passed with none skipped.
+`scripts/linux-tui-check.py` is the executable specification for the terminal
+lifecycle; extend it when terminal behavior changes rather than copying its
+cases into this document. CI also rejects dynamically linked Linux release
+binaries.
 
 Nothing else links a C library. `zig build -Dtarget=x86_64-windows-gnu`,
 `-Dtarget=aarch64-windows-gnu`, `-Dtarget=x86_64-linux-musl` and
@@ -58,8 +60,8 @@ SIGHUP, SIGINT, SIGQUIT and SIGTERM into a clean event-loop exit before
 restoring each prior handler. Ctrl-Z and SIGTSTP first scrub visible and typed
 secrets, tear down vaxis, restore the prior SIGTSTP action and stop. After `fg`,
 the app constructs a fresh vaxis reader around the same model. The signal
-handler itself only writes a volatile `sig_atomic_t`; terminal I/O and termios
-restoration stay outside signal context.
+handler only updates a `sig_atomic_t` with atomic operations; terminal I/O and
+termios restoration stay outside signal context.
 
 Before `App.run`, the TUI reads `TIOCGWINSZ` and seeds vaxis with that exact
 size. Only a zero row or column gets an 80x24 fallback written back with
