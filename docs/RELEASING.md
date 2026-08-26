@@ -57,8 +57,12 @@ so CI confirms the committed hashes still match.
 
 ## 6. Tag and push the tag
 
+Write a prose summary of the release as the tag message. The first line is a
+subject. The body explains the key changes in short paragraphs. End with
+"CHANGELOG.md lists every change." See `git tag -v v2.1.0` for an example.
+
 ```sh
-git tag vX.Y.Z
+git tag -a vX.Y.Z
 git push origin vX.Y.Z
 ```
 
