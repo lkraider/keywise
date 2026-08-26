@@ -92,7 +92,7 @@ pub const Model = struct {
     fn openWith(self: *Model, profile_path: []const u8, password: []const u8) Opened {
         self.close();
         self.needs_password = false;
-        const opened = store_mod.Store.open(self.gpa, self.io, profile_path, password) catch |err| {
+        self.store = store_mod.Store.open(self.gpa, self.io, profile_path, password) catch |err| {
             // An empty password reaching WrongPassword means the profile has
             // a Primary Password of its own. No caller supplied one yet.
             if (err == error.WrongPassword and password.len == 0) {
@@ -103,8 +103,9 @@ pub const Model = struct {
             self.setStatus("{s}", .{core.messages.friendly(err)});
             return .failed;
         };
-        self.store = opened;
         self.search("") catch {
+            if (self.store) |*s| s.deinit();
+            self.store = null;
             self.setStatus("{s}", .{"out of memory"});
             return .failed;
         };
@@ -195,6 +196,7 @@ pub const Model = struct {
         var scratch: [8192]u8 = undefined;
         defer std.crypto.secureZero(u8, &scratch);
         const plain = s.reveal(index, &scratch, &self.reveal_buf) catch |err| {
+            self.hideRevealed();
             self.setStatus("{s}", .{core.messages.friendly(err)});
             return .failed;
         };
@@ -215,9 +217,11 @@ pub const Model = struct {
         if (self.isAccountRow(row) and !confirmed) return .needs_confirmation;
 
         const s = &(self.store orelse return .failed);
+        self.clearCopy();
         var scratch: [8192]u8 = undefined;
         defer std.crypto.secureZero(u8, &scratch);
         const plain = s.reveal(index, &scratch, &self.copy_buf) catch |err| {
+            self.clearCopy();
             self.setStatus("{s}", .{core.messages.friendly(err)});
             return .failed;
         };
@@ -239,24 +243,21 @@ pub const Model = struct {
     }
 
     pub fn clearCopy(self: *Model) void {
-        std.crypto.secureZero(u8, self.copy_buf[0..self.copy_len]);
+        std.crypto.secureZero(u8, &self.copy_buf);
         self.copy_len = 0;
     }
 
     /// The 30-second timer in main.zig calls this. So does Esc and so does a
     /// second activation on the revealed row.
     pub fn hideRevealed(self: *Model) void {
-        std.crypto.secureZero(u8, self.reveal_buf[0..self.revealed_len]);
+        std.crypto.secureZero(u8, &self.reveal_buf);
         self.revealed_len = 0;
         self.revealed_index = null;
     }
 
     /// Zeroes both plaintext buffers whole. crash.zig calls this from the
-    /// panic handler.
-    ///
-    /// `hideRevealed` and `clearCopy` slice by a stored length. A panic can
-    /// arrive with a length past 8192, and that slice panics again inside the
-    /// handler. This function reads no length.
+    /// panic handler; it deliberately reads neither stored length because a
+    /// panic can arrive mid-assignment.
     pub fn wipeSecrets(self: *Model) void {
         std.crypto.secureZero(u8, &self.reveal_buf);
         std.crypto.secureZero(u8, &self.copy_buf);
@@ -448,18 +449,24 @@ test "wipeSecrets clears both buffers whole and survives a length past the buffe
     try testing.expect(m.revealed_index == null);
 }
 
-test "copying a 3DES row reports the error and copies nothing" {
+test "a failed 3DES reveal or copy wipes the destination buffer" {
     var threaded: std.Io.Threaded = .init(testing.allocator, .{});
     defer threaded.deinit();
     var m = testModel(&threaded);
     defer m.deinit();
     try openFixture(&m, "unmigrated");
 
+    @memset(&m.reveal_buf, 0xa5);
+    try testing.expectEqual(Reveal.failed, m.toggleReveal(0, false));
+    for (&m.reveal_buf) |b| try testing.expectEqual(@as(u8, 0), b);
+
+    @memset(&m.copy_buf, 0xa5);
     try testing.expectEqual(Copy.failed, m.requestCopy(0, false));
     try testing.expectEqualStrings(
         core.messages.friendly(error.LegacyTripleDes),
         m.status(),
     );
+    for (&m.copy_buf) |b| try testing.expectEqual(@as(u8, 0), b);
     try testing.expectEqual(@as(usize, 0), m.copy_len);
 }
 
