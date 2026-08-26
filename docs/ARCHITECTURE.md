@@ -80,19 +80,11 @@ scripts/                 automation and one-shot validation tools
 Names encode their role; Linux-, Windows- and Wine-only drivers carry explicit
 platform prefixes.
 
-`docs-social-preview.py` imports Pillow. Every other Python script here reads
-the standard library alone. It also reads the two Georgia faces under
-`/System/Library/Fonts/Supplemental`. It writes `docs/images/social-preview.png`
-at 1280x640 for the repo's Social preview field and for `twitter:image`, and
-`docs/images/social-og.png` at 1200x630 for `og:image`. Both embed
-`docs/images/tui.png`, so retaking that screenshot leaves both cards showing
-the old content. The render reproduces byte for byte, so a rerun followed by
-`git diff --stat docs/images/` reports it.
+`docs-social-preview.py` writes the two share-card images from `tui.png`.
+It imports Pillow. Every other Python script uses the standard library alone.
 
-Two scripts compile `docs-window-list.swift`. `docs-screenshots.sh` compiles
-it for the Terminal capture, the macOS app capture and the wine capture.
-`wine-check.sh` compiles it for its window lookups. The prefix names the
-first caller.
+`docs-window-list.swift` is compiled by `docs-screenshots.sh` and
+`wine-check.sh` for their window lookups.
 
 Inside `win/src/`, `model.zig` holds every rule about what a row shows and
 what an activation means. It imports `core` and `std` alone, so `zig build
@@ -104,16 +96,10 @@ handler.
 
 The Swift files above are one-shot tools. `docs-screenshots.sh` and
 `wine-check.sh` each compile the ones they need with `swiftc -O` into their
-own work directory.
-
-Both scripts create a wine prefix per run and call `wine-shutdown.sh` from
-their cleanup trap. `wineboot --init` starts `services.exe`, `explorer.exe`,
-`plugplay.exe`, `svchost.exe` and two `winedevice.exe` for the prefix. On wine
-11.15 under Rosetta 2 those keep running after `wineserver -k` and after the
-prefix directory is deleted, reparented to launchd. A run that skips the call
-leaves 8 of them, and they stay until the Mac reboots. Their argv holds a
-Windows path and names no prefix, so `wine-shutdown.sh` reads each candidate's
-cwd through `lsof` and kills the ones inside the prefix it was given.
+own work directory. Both create a wine prefix per run and call
+`wine-shutdown.sh` from their cleanup trap. `wineserver -k` does not
+terminate every helper process wine starts. `wine-shutdown.sh` handles the
+remainder.
 
 ### A panic on Windows shows a message box
 
@@ -217,71 +203,41 @@ stdout, so `cut -f1` over stdout keeps working.
 
 ### Copying on Linux
 
-`tui/src/main.zig` picks a helper chain from the environment and stops at
-the first helper that spawns and exits 0:
+The TUI picks a clipboard helper from the environment:
 
-- `$WAYLAND_DISPLAY` set: `wl-copy`, then `xclip -selection clipboard`, then
-  `xsel --clipboard --input`.
-- `$DISPLAY` set alone: `xclip`, then `xsel`.
-- With no display variable set: the chain is empty.
+- `$WAYLAND_DISPLAY` set: tries `wl-copy`, then `xclip`, then `xsel`.
+- `$DISPLAY` set alone: tries `xclip`, then `xsel`.
+- Neither set: no helper runs.
 
-`wl-copy` connects to a Wayland compositor and fails on an X11 session.
-`xclip` and `xsel` need `$DISPLAY`, and they reach a Wayland clipboard
-through XWayland. Over SSH with no X11 forwarding, every helper fails to
-connect, and keywise's OSC 52 write reaches the local terminal's clipboard.
-`wl-copy --paste-once` serves one paste request and then drops the
-clipboard, so a paste into an XWayland window returns nothing.
-
-Every successful copy leaves `copied` on the status line. `wl-copy` ships in
-the `wl-clipboard` package, `xclip` in `xclip` and `xsel` in `xsel`.
-`README.md` and `keywise --help` name them.
+Every copy also writes OSC 52. Over SSH with no display variable, OSC 52
+is the only path that reaches a clipboard.
 
 ### The stdout path
 
-`y` copies the password into a buffer on `Model` when
-`std.Io.File.stdout().isTty` returns false. `main` writes that buffer once,
-after `app.run` returns, with no trailing newline. The last `y` of the run
-is what a reader receives.
+When stdout is not a terminal, `y` buffers the password. `main` writes
+that buffer once after the UI exits, with no trailing newline. The last
+`y` of the run is what a reader receives.
 
     keywise                    # stdout is the terminal, so nothing is written
     keywise | wl-copy          # stdout is a pipe, so the password goes down it
     keywise > /tmp/p           # stdout is a file, so the password lands there
 
-libvaxis opens `/dev/tty` directly, so the UI survives a pipe. An
-interactive `keywise` writes into terminal scrollback, into a tmux buffer and
-into `script` output, and the tty check keeps the password out of all
-three. The helper chain runs independently of this, so `keywise > /tmp/p`
-behaves the same on a host with `xclip` and on one without it. A `y` press
-is what puts bytes anywhere, so a redirect alone writes nothing.
+The helper chain runs independently. `keywise > /tmp/p` behaves the same
+on a host with `xclip` and on one without it.
 
-`wl-copy` and `xclip` copy the bytes they receive, and a newline inside a
-password field breaks a login form, so the write ends without one. Bytes
-already in a pipe cannot be retracted, so buffering lets the last `y`
-replace the one before it. The write ends with `catch {}`. A reader that
-exits first gives `error.BrokenPipe`, and a `try` would make
-`keywise | head -c 5` exit non-zero with a trace.
+### Clipboard privacy markers
 
-Each native GUI marks a copied password so a clipboard manager skips it.
-macOS writes the `org.nspasteboard.ConcealedType` pasteboard type.
-`win/src/clipboard.zig` registers four formats and writes all four ahead of
-`CF_UNICODETEXT`, so a monitor reading the moment the text lands already
-finds them:
+macOS writes `org.nspasteboard.ConcealedType` on the pasteboard.
 
-- `CanIncludeInClipboardHistory` and `CanUploadToCloudClipboard` take a
-  DWORD 0. These are Windows' own opt-outs for `Win+V` history and for the
-  cloud clipboard.
-- `ExcludeClipboardContentFromMonitorProcessing` takes any value. A monitor
-  that finds it leaves the copy alone.
-- `Clipboard Viewer Ignore` is the convention third-party managers honoured
-  before Windows 10 named its own.
+The Windows app registers four clipboard formats ahead of `CF_UNICODETEXT`:
+`CanIncludeInClipboardHistory`, `CanUploadToCloudClipboard`,
+`ExcludeClipboardContentFromMonitorProcessing`, and
+`Clipboard Viewer Ignore`. These keep the password out of Win+V history
+and the cloud clipboard.
 
-Both apps clear the clipboard 30 seconds after a copy, and both re-mask a
-revealed password on the same timer. Each reads the clipboard's serial
-number right after its own write and compares before it clears, so a copy
-another program made in between stays. The call is
-`GetClipboardSequenceNumber` on Windows and `NSPasteboard.changeCount` on
-macOS. The TUI writes through OSC 52 and a helper program, and arms no timer
-on any platform.
+Both apps clear the clipboard 30 seconds after a copy. Each checks the
+clipboard serial number before clearing, so a copy from another program
+survives. The TUI has no timer.
 
 ## Limits
 

@@ -51,26 +51,18 @@ import library from it, so the Win32 link needs no Windows SDK.
 
 ## POSIX terminal lifecycle
 
-vaxis 0.6 opens `/dev/tty` independently of stdin/stdout, saves termios, enters
-raw mode and restores termios with `TCSAFLUSH` in `Tty.deinit`. `Vaxis.deinit`
-pops Kitty keyboard mode, disables mouse and bracketed paste, shows the cursor,
-leaves the alternate screen and flushes. `tui/src/main.zig` wraps panics with
-`vaxis.recover`, disables key-release reports it does not consume, and turns
-SIGHUP, SIGINT, SIGQUIT and SIGTERM into a clean event-loop exit before
-restoring each prior handler. Ctrl-Z and SIGTSTP first scrub visible and typed
-secrets, tear down vaxis, restore the prior SIGTSTP action and stop. After `fg`,
-the app constructs a fresh vaxis reader around the same model. The signal
-handler only updates a `sig_atomic_t` with atomic operations; terminal I/O and
-termios restoration stay outside signal context.
+vaxis 0.6 opens `/dev/tty` independently of stdin/stdout, so the UI works
+when stdout is a pipe. It saves and restores termios across the session.
 
-Before `App.run`, the TUI reads `TIOCGWINSZ` and seeds vaxis with that exact
-size. Only a zero row or column gets an 80x24 fallback written back with
-`TIOCSWINSZ`; valid user dimensions must never be changed. vaxis wraps every
-render in DECSET 2026 synchronized-output markers. Its current `App.run` enters
-the alternate screen before capability probing. The TUI suppresses vaxis's
-startup info log, then draws a complete loading frame before it performs SQLite
-reads or password-based key derivation. This minimizes startup blanking without
-copying or forking the framework's event loop.
+SIGHUP, SIGINT, SIGQUIT and SIGTERM cause a clean exit. The signal handler
+restores termios and the prior signal action. Ctrl-Z (SIGTSTP) scrubs
+visible and typed secrets, tears down vaxis and stops. After `fg`, the app
+constructs a fresh vaxis reader around the same model. Signal handlers use
+atomic operations only. Terminal I/O stays outside signal context.
+
+Before the event loop, the TUI reads `TIOCGWINSZ` and seeds vaxis with
+that size. A zero row or column gets an 80×24 fallback. The TUI draws a
+loading frame before key derivation to avoid a blank startup.
 
 ## Windows
 

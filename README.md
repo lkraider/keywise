@@ -180,10 +180,9 @@ something else replaces it, and a revealed row stays open until you press
 `enter` again. On Linux it writes no marker, so a clipboard manager there
 keeps the copy.
 
-Anyone who can read your files or your memory already has this data.
-`key4.db` is readable by your own user, and Firefox exposes the same
-logins. Once a password reaches a buffer, copies of it exist. This code
-wipes the buffers it owns.
+Anyone who can read your files already has this data. Firefox exposes the
+same logins through its own UI. The code wipes every decrypted buffer it
+owns.
 
 A profile synced to a Mozilla Account holds a `chrome://FirefoxAccounts`
 row. Its password is sync key material, so revealing it hands over the
