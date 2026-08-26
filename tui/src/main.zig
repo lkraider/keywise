@@ -20,17 +20,30 @@ var termination_signal: std.c.sig_atomic_t = 0;
 const termination_poll_ms = 50;
 
 fn setTerminationSignal(signal: std.posix.SIG) void {
-    const signal_ptr: *volatile std.c.sig_atomic_t = &termination_signal;
-    signal_ptr.* = @intCast(@intFromEnum(signal));
+    const incoming: std.c.sig_atomic_t = @intCast(@intFromEnum(signal));
+    const suspended: std.c.sig_atomic_t = @intCast(@intFromEnum(std.posix.SIG.TSTP));
+    // A termination request replaces a pending suspend; otherwise the first signal wins.
+    var current = @atomicLoad(std.c.sig_atomic_t, &termination_signal, .monotonic);
+    while (current == 0 or (current == suspended and incoming != suspended)) {
+        current = @cmpxchgWeak(std.c.sig_atomic_t, &termination_signal, current, incoming, .monotonic, .monotonic) orelse return;
+    }
 }
 
 fn requestTermination(signal: std.posix.SIG) callconv(.c) void {
     setTerminationSignal(signal);
 }
 
+fn clearTerminationSignal() void {
+    @atomicStore(std.c.sig_atomic_t, &termination_signal, 0, .monotonic);
+}
+
+fn clearSuspensionSignal() void {
+    const suspended: std.c.sig_atomic_t = @intCast(@intFromEnum(std.posix.SIG.TSTP));
+    _ = @cmpxchgStrong(std.c.sig_atomic_t, &termination_signal, suspended, 0, .monotonic, .monotonic);
+}
+
 fn terminationSignal() u8 {
-    const signal_ptr: *volatile std.c.sig_atomic_t = &termination_signal;
-    return @intCast(signal_ptr.*);
+    return @intCast(@atomicLoad(std.c.sig_atomic_t, &termination_signal, .monotonic));
 }
 
 fn terminationAction() std.posix.Sigaction {
@@ -84,10 +97,13 @@ const cli = @import("args.zig");
 const build_options = @import("build_options");
 
 const masked_password = "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}";
+const secret_buffer_len = 8192;
+const AccountAction = enum { reveal, copy };
+const PendingAccountAction = struct { index: usize, action: AccountAction };
 
-/// A password prompt with its own tiny buffer, drawn as one bullet per
-/// grapheme typed. Kept separate from vxfw.TextField so the plaintext
-/// Primary Password only ever exists in a buffer this file wipes itself.
+/// A password prompt with its own tiny buffer. Its application-owned copy of
+/// the Primary Password is wiped explicitly instead of being left to a generic
+/// text field allocator.
 const SecretField = struct {
     gpa: std.mem.Allocator,
     buf: std.ArrayList(u8) = .empty,
@@ -99,13 +115,34 @@ const SecretField = struct {
     }
 
     fn deinit(self: *SecretField) void {
-        std.crypto.secureZero(u8, self.buf.items);
+        if (self.buf.capacity > 0) std.crypto.secureZero(u8, self.buf.allocatedSlice());
         self.buf.deinit(self.gpa);
     }
 
     fn clear(self: *SecretField) void {
-        std.crypto.secureZero(u8, self.buf.items);
+        if (self.buf.capacity > 0) std.crypto.secureZero(u8, self.buf.allocatedSlice());
         self.buf.clearRetainingCapacity();
+    }
+
+    /// ArrayList may move an allocation while growing it, which would release
+    /// the old password bytes without wiping them. Grow explicitly so every
+    /// allocation this field relinquishes is scrubbed first.
+    fn appendSlice(self: *SecretField, text: []const u8) std.mem.Allocator.Error!void {
+        const needed = std.math.add(usize, self.buf.items.len, text.len) catch return error.OutOfMemory;
+        if (needed > self.buf.capacity) {
+            const grown = self.buf.capacity +| self.buf.capacity / 2 +| 8;
+            const new_memory = try self.gpa.alloc(u8, @max(needed, grown));
+            const old_len = self.buf.items.len;
+            @memcpy(new_memory[0..old_len], self.buf.items);
+            if (self.buf.capacity > 0) {
+                const old_memory = self.buf.allocatedSlice();
+                std.crypto.secureZero(u8, old_memory);
+                self.gpa.free(old_memory);
+            }
+            self.buf.items = new_memory[0..old_len];
+            self.buf.capacity = new_memory.len;
+        }
+        self.buf.appendSliceAssumeCapacity(text);
     }
 
     fn widget(self: *SecretField) vxfw.Widget {
@@ -136,7 +173,7 @@ const SecretField = struct {
                     self.buf.items.len = last_start;
                     return ctx.consumeAndRedraw();
                 } else if (key.text) |text| {
-                    try self.buf.appendSlice(self.gpa, text);
+                    try self.appendSlice(text);
                     return ctx.consumeAndRedraw();
                 }
             },
@@ -180,9 +217,8 @@ const Model = struct {
     gpa: std.mem.Allocator,
     io: std.Io,
     profile_path: []const u8,
-    /// `main` reads WAYLAND_DISPLAY and DISPLAY and picks the chain.
-    /// copySelected receives a vxfw.EventContext, and that struct carries no
-    /// environment.
+    /// `main` reads WAYLAND_DISPLAY and DISPLAY and picks the local helper
+    /// chain before constructing the model.
     helpers: []const []const []const u8,
 
     password_field: SecretField,
@@ -208,19 +244,17 @@ const Model = struct {
     mode: enum { normal, search } = .normal,
 
     revealed_index: ?usize = null,
-    /// The `chrome://FirefoxAccounts` password is Mozilla Account sync key
-    /// material. Revealing it and copying it each ask for a second press,
-    /// and each records which action was asked about, so pressing `y` and
-    /// then `enter` asks twice.
-    pending_account_action: ?enum { reveal, copy } = null,
-    reveal_scratch: [8192]u8 = undefined,
-    reveal_out: [8192]u8 = undefined,
+    /// Account credentials require the same action on the same row twice, so
+    /// moving between account rows cannot reuse a confirmation.
+    pending_account_action: ?PendingAccountAction = null,
+    reveal_scratch: [secret_buffer_len]u8 = undefined,
+    reveal_out: [secret_buffer_len]u8 = undefined,
 
     /// Filled by `y` when stdout is a pipe or a file. `main` writes it once,
     /// after app.run returns. Bytes already in the pipe cannot be retracted.
     /// A write per press would send every password of the run, with nothing
     /// between them.
-    stdout_out: [8192]u8 = undefined,
+    stdout_out: [secret_buffer_len]u8 = undefined,
     stdout_len: usize = 0,
 
     status: [160]u8 = undefined,
@@ -284,7 +318,7 @@ const Model = struct {
     /// and the prompt asks again. Every other failure sets `open_error` and
     /// a message through `setStatus`.
     fn tryOpen(self: *Model, password: []const u8) void {
-        const s = store_mod.Store.open(self.gpa, self.io, self.profile_path, password) catch |err| {
+        self.store = store_mod.Store.open(self.gpa, self.io, self.profile_path, password) catch |err| {
             switch (err) {
                 error.WrongPassword => {
                     if (password.len > 0) self.password_error = true;
@@ -296,7 +330,6 @@ const Model = struct {
             }
             return;
         };
-        self.store = s;
         self.buildRows() catch |err| {
             self.open_error = true;
             self.setStatus("{s}", .{friendlyMessage(err)});
@@ -332,15 +365,10 @@ const Model = struct {
             .normal => "",
         };
         const user_display = if (e.legacy_3des) "<3DES, unsupported>" else e.username;
-        const password_display: []const u8 = if (self.revealed_index == index) blk: {
-            const plain = s.reveal(index, &self.reveal_scratch, &self.reveal_out) catch |err| {
-                break :blk switch (err) {
-                    error.LegacyTripleDes => "<3DES, unsupported>",
-                    else => "<could not decrypt>",
-                };
-            };
-            break :blk plain;
-        } else masked_password;
+        const password_display: []const u8 = if (self.revealed_index == index)
+            try s.reveal(index, &self.reveal_scratch, &self.reveal_out)
+        else
+            masked_password;
 
         const new_line = try std.fmt.allocPrint(
             self.gpa,
@@ -353,11 +381,16 @@ const Model = struct {
         self.rows[index].text.text = self.row_lines[index];
     }
 
+    fn wipeRevealBuffers(self: *Model) void {
+        std.crypto.secureZero(u8, &self.reveal_scratch);
+        std.crypto.secureZero(u8, &self.reveal_out);
+    }
+
     fn hideRevealed(self: *Model) void {
         const idx = self.revealed_index orelse return;
         self.revealed_index = null;
         self.pending_account_action = null;
-        std.crypto.secureZero(u8, &self.reveal_out);
+        self.wipeRevealBuffers();
         self.refreshRow(idx) catch {
             std.crypto.secureZero(u8, self.row_lines[idx]);
             self.rows[idx].text.text = "";
@@ -365,6 +398,7 @@ const Model = struct {
     }
 
     fn revealAt(self: *Model, index: usize) void {
+        defer self.wipeRevealBuffers();
         if (self.revealed_index) |prev| {
             if (prev != index) self.hideRevealed();
         }
@@ -372,7 +406,6 @@ const Model = struct {
         self.refreshRow(index) catch |err| {
             self.revealed_index = null;
             self.pending_account_action = null;
-            std.crypto.secureZero(u8, &self.reveal_out);
             self.setStatus("reveal failed: {s}", .{friendlyMessage(err)});
         };
     }
@@ -380,11 +413,21 @@ const Model = struct {
     fn scrubForSuspend(self: *Model) void {
         self.hideRevealed();
         self.password_field.clear();
-        std.crypto.secureZero(u8, &self.reveal_scratch);
-        std.crypto.secureZero(u8, &self.reveal_out);
+        self.wipeRevealBuffers();
         std.crypto.secureZero(u8, &self.stdout_out);
         self.stdout_len = 0;
         self.pending_account_action = null;
+    }
+
+    fn confirmAccountAction(self: *Model, index: usize, action: AccountAction) bool {
+        if (self.pending_account_action) |pending| {
+            if (pending.index == index and pending.action == action) {
+                self.pending_account_action = null;
+                return true;
+            }
+        }
+        self.pending_account_action = .{ .index = index, .action = action };
+        return false;
     }
 
     fn selectedEntryIndex(self: *Model) ?usize {
@@ -404,6 +447,37 @@ const Model = struct {
         self.list_view.scroll = .{};
     }
 
+    /// Wraps ListView so unrelated input can cancel a pending account action
+    /// before ListView consumes it.
+    fn listWidget(self: *Model) vxfw.Widget {
+        return .{
+            .userdata = self,
+            .eventHandler = Model.typeErasedListEventHandler,
+            .drawFn = Model.typeErasedListDrawFn,
+        };
+    }
+
+    fn typeErasedListEventHandler(ptr: *anyopaque, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
+        const self: *Model = @ptrCast(@alignCast(ptr));
+        switch (event) {
+            .key_press => |key| {
+                if (!key.matches(vaxis.Key.enter, .{}) and !key.matches('y', .{})) {
+                    self.pending_account_action = null;
+                }
+            },
+            .mouse, .focus_out => self.pending_account_action = null,
+            else => {},
+        }
+        return self.list_view.handleEvent(ctx, event);
+    }
+
+    fn typeErasedListDrawFn(ptr: *anyopaque, ctx: vxfw.DrawContext) std.mem.Allocator.Error!vxfw.Surface {
+        const self: *Model = @ptrCast(@alignCast(ptr));
+        var surface = try self.list_view.draw(ctx);
+        surface.widget = self.listWidget();
+        return surface;
+    }
+
     fn buildListItem(ptr: *const anyopaque, idx: usize, _: usize) ?vxfw.Widget {
         const self: *const Model = @ptrCast(@alignCast(ptr));
         if (idx >= self.match_indices.items.len) return null;
@@ -414,6 +488,7 @@ const Model = struct {
     fn onSearchChange(maybe_ptr: ?*anyopaque, ctx: *vxfw.EventContext, str: []const u8) anyerror!void {
         const ptr = maybe_ptr orelse return;
         const self: *Model = @ptrCast(@alignCast(ptr));
+        self.pending_account_action = null;
         if (self.revealed_index != null) self.hideRevealed();
         try self.rebuildMatches(str);
         ctx.consumeAndRedraw();
@@ -429,39 +504,39 @@ const Model = struct {
         ctx.consumeAndRedraw();
     }
 
-    /// Copies the row under the cursor. The row stays masked. `reveal_out`
-    /// holds the plaintext for the two clipboard writes. A revealed row owns
-    /// that buffer and wipes it in `hideRevealed`. Every other case wipes it
-    /// here.
-    fn copySelected(self: *Model, ctx: *vxfw.EventContext) !void {
-        const idx = self.selectedEntryIndex() orelse return;
+    /// Copies the row under the cursor. The row stays masked. The plaintext
+    /// buffers are wiped on every return after the account confirmation.
+    fn copySelected(self: *Model) void {
+        const idx = self.selectedEntryIndex() orelse {
+            self.pending_account_action = null;
+            return;
+        };
         const s = &self.store.?;
-        if (s.entries[idx].kind == .account_credential and self.pending_account_action != .copy) {
-            self.pending_account_action = .copy;
+        if (s.entries[idx].kind == .account_credential and !self.confirmAccountAction(idx, .copy)) {
             self.setStatus("this copies Firefox Sync account credentials to the clipboard -- press y again to confirm", .{});
             return;
         }
         self.pending_account_action = null;
+        defer self.wipeRevealBuffers();
         const plain = s.reveal(idx, &self.reveal_scratch, &self.reveal_out) catch |err| {
             self.setStatus("copy failed: {s}", .{friendlyMessage(err)});
             return;
         };
-        try ctx.copyToClipboard(plain);
-        const helper_copied = copyViaHelper(self.io, self.helpers, plain);
+        // OSC 52 is always attempted before the local helper. A terminal can
+        // reject or ignore it without acknowledging the clipboard write.
+        copyOsc52(self.io, plain) catch {};
+        copyViaHelper(self.io, self.helpers, plain);
 
         // A terminal on stdout puts the password into scrollback, into a tmux
         // buffer and into `script` output.
         if (!(std.Io.File.stdout().isTty(self.io) catch true)) {
-            const n = @min(plain.len, self.stdout_out.len);
-            @memcpy(self.stdout_out[0..n], plain[0..n]);
-            self.stdout_len = n;
+            std.debug.assert(plain.len <= self.stdout_out.len);
+            std.crypto.secureZero(u8, &self.stdout_out);
+            @memcpy(self.stdout_out[0..plain.len], plain);
+            self.stdout_len = plain.len;
         }
 
-        if (self.revealed_index == null) std.crypto.secureZero(u8, &self.reveal_out);
-        if (helper_copied)
-            self.setStatus("copied", .{})
-        else
-            self.setStatus("copy sent to terminal; no working local clipboard helper", .{});
+        self.setStatus("copied", .{});
     }
 
     fn focusForMode(self: *Model) vxfw.Widget {
@@ -471,7 +546,7 @@ const Model = struct {
         if (self.open_error) return self.widget();
         if (self.store == null) return self.password_field.widget();
         return switch (self.mode) {
-            .normal => self.list_view.widget(),
+            .normal => self.listWidget(),
             .search => self.search_field.widget(),
         };
     }
@@ -507,6 +582,7 @@ const Model = struct {
             },
             .key_press => |key| {
                 if (key.matches('c', .{ .ctrl = true })) {
+                    self.pending_account_action = null;
                     ctx.quit = true;
                     return;
                 }
@@ -524,28 +600,32 @@ const Model = struct {
                 if (self.mode == .search) {
                     if (key.matches(vaxis.Key.enter, .{}) or key.matches(vaxis.Key.escape, .{})) {
                         self.mode = .normal;
-                        try ctx.requestFocus(self.list_view.widget());
+                        try ctx.requestFocus(self.listWidget());
                         return ctx.consumeAndRedraw();
                     }
                     return; // let the search field handle everything else
                 }
 
-                // .normal mode: the list holds focus, so plain letters are
-                // free to use as shortcuts.
+                // .normal mode: the list wrapper holds focus, so plain letters
+                // are free to use as shortcuts.
                 if (key.matches('/', .{})) {
+                    self.pending_account_action = null;
                     self.mode = .search;
                     try ctx.requestFocus(self.search_field.widget());
                     return ctx.consumeAndRedraw();
                 }
                 if (key.matches('q', .{})) {
+                    self.pending_account_action = null;
                     ctx.quit = true;
                     return;
                 }
                 if (key.matches(vaxis.Key.enter, .{})) {
                     if (self.selectedEntryIndex()) |idx| {
                         const kind = self.store.?.entries[idx].kind;
-                        if (kind == .account_credential and self.pending_account_action != .reveal and self.revealed_index != idx) {
-                            self.pending_account_action = .reveal;
+                        if (kind == .account_credential and
+                            self.revealed_index != idx and
+                            !self.confirmAccountAction(idx, .reveal))
+                        {
                             self.setStatus("this reveals Firefox Sync account credentials -- press enter again to confirm", .{});
                             return ctx.consumeAndRedraw();
                         }
@@ -557,13 +637,16 @@ const Model = struct {
                         }
                         return ctx.consumeAndRedraw();
                     }
+                    self.pending_account_action = null;
                     return;
                 }
                 if (key.matches('y', .{})) {
-                    try self.copySelected(ctx);
+                    self.copySelected();
                     return ctx.consumeAndRedraw();
                 }
-                return self.list_view.handleEvent(ctx, event);
+                // A confirmation applies only to an immediately repeated
+                // action. Navigation or any unrelated key cancels it.
+                self.pending_account_action = null;
             },
             else => {},
         }
@@ -589,7 +672,7 @@ const Model = struct {
 
         const list_surface: vxfw.SubSurface = .{
             .origin = .{ .row = 2, .col = 0 },
-            .surface = try self.list_view.draw(ctx.withConstraints(
+            .surface = try self.listWidget().draw(ctx.withConstraints(
                 ctx.min,
                 .{ .width = max.width, .height = max.height -| 3 },
             )),
@@ -679,9 +762,30 @@ const wayland_helpers: []const []const []const u8 = &.{
 const x11_helpers: []const []const []const u8 = wayland_helpers[1..];
 const macos_helpers: []const []const []const u8 = &.{&.{"pbcopy"}};
 
-/// OSC 52 never reports whether the terminal accepted the copy, so this also
-/// tries the configured native helpers and reports whether one succeeded.
-fn copyViaHelper(io: std.Io, helpers: []const []const []const u8, text: []const u8) bool {
+/// Writes OSC 52 directly so plaintext and base64 copies stay in fixed buffers
+/// that can be wiped, rather than in the framework command allocator.
+fn copyOsc52(io: std.Io, text: []const u8) !void {
+    const encoder = std.base64.standard.Encoder;
+    var encoded: [encoder.calcSize(secret_buffer_len)]u8 = undefined;
+    defer std.crypto.secureZero(u8, &encoded);
+    if (text.len > secret_buffer_len) return error.SecretTooLarge;
+    const b64 = encoder.encode(encoded[0..encoder.calcSize(text.len)], text);
+
+    const tty = try std.Io.Dir.cwd().openFile(io, "/dev/tty", .{
+        .mode = .write_only,
+        .allow_directory = false,
+    });
+    defer tty.close(io);
+
+    var buffer: [4096]u8 = undefined;
+    defer std.crypto.secureZero(u8, &buffer);
+    var writer = tty.writer(io, &buffer);
+    try writer.interface.print("\x1b]52;c;{s}\x1b\\", .{b64});
+    try writer.interface.flush();
+}
+
+/// Best-effort local clipboard write after the unconditional OSC 52 copy.
+fn copyViaHelper(io: std.Io, helpers: []const []const []const u8, text: []const u8) void {
     for (helpers) |argv| {
         var child = std.process.spawn(io, .{
             .argv = argv,
@@ -692,6 +796,7 @@ fn copyViaHelper(io: std.Io, helpers: []const []const []const u8, text: []const 
         var wrote = false;
         if (child.stdin) |stdin| {
             var buf: [4096]u8 = undefined;
+            defer std.crypto.secureZero(u8, &buf);
             var writer = stdin.writer(io, &buf);
             wrote = write: {
                 writer.interface.writeAll(text) catch break :write false;
@@ -704,9 +809,8 @@ fn copyViaHelper(io: std.Io, helpers: []const []const []const u8, text: []const 
             child.stdin = null;
         }
         const term = child.wait(io) catch continue;
-        if (wrote and term == .exited and term.exited == 0) return true;
+        if (wrote and term == .exited and term.exited == 0) return;
     }
-    return false;
 }
 
 fn readProfilesIni(io: std.Io, gpa: std.mem.Allocator, firefox_dir: []const u8) ![]u8 {
@@ -779,6 +883,7 @@ fn reportNoFirefoxDir(io: std.Io, gpa: std.mem.Allocator, home: []const u8) !voi
 
 fn write(io: std.Io, file: std.Io.File, text: []const u8) !void {
     var buf: [512]u8 = undefined;
+    defer std.crypto.secureZero(u8, &buf);
     var writer = file.writer(io, &buf);
     try writer.interface.writeAll(text);
     try writer.interface.flush();
@@ -894,7 +999,7 @@ pub fn main(init: std.process.Init) !u8 {
     else
         &.{};
 
-    termination_signal = 0;
+    clearTerminationSignal();
     const handlers = TerminationHandlers.install();
     defer handlers.deinit();
 
@@ -913,13 +1018,15 @@ pub fn main(init: std.process.Init) !u8 {
         signal = terminationSignal();
         if (signal != @intFromEnum(std.posix.SIG.TSTP)) break;
 
-        // App.deinit has restored termios and the primary screen before the
-        // process stops. After `fg`, construct a fresh App around the same
-        // scrubbed model instead of trying to reuse vaxis's reader thread.
+        // App.deinit has restored termios and the primary screen. Clear only
+        // the handled SIGTSTP; compare-exchange preserves a termination request
+        // that races with this transition.
+        clearSuspensionSignal();
+        signal = terminationSignal();
+        if (signal != 0) break;
         try handlers.suspendProcess();
         signal = terminationSignal();
-        if (signal != @intFromEnum(std.posix.SIG.TSTP)) break;
-        termination_signal = 0;
+        if (signal != 0) break;
     }
 
     if (signal != 0) return 128 +| signal;
