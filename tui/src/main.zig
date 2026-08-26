@@ -6,6 +6,75 @@ const builtin = @import("builtin");
 const vaxis = @import("vaxis");
 const vxfw = vaxis.vxfw;
 
+fn panicHandler(message: []const u8, return_address: ?usize) noreturn {
+    vaxis.recover();
+    std.debug.defaultPanic(message, return_address);
+}
+
+pub const panic = std.debug.FullPanic(panicHandler);
+// vaxis capability messages are diagnostic noise between alternate-screen
+// entry and the first frame, where they appear as a startup flash.
+pub const std_options: std.Options = .{ .log_level = .warn };
+
+var termination_signal: std.c.sig_atomic_t = 0;
+const termination_poll_ms = 50;
+
+fn setTerminationSignal(signal: std.posix.SIG) void {
+    const signal_ptr: *volatile std.c.sig_atomic_t = &termination_signal;
+    signal_ptr.* = @intCast(@intFromEnum(signal));
+}
+
+fn requestTermination(signal: std.posix.SIG) callconv(.c) void {
+    setTerminationSignal(signal);
+}
+
+fn terminationSignal() u8 {
+    const signal_ptr: *volatile std.c.sig_atomic_t = &termination_signal;
+    return @intCast(signal_ptr.*);
+}
+
+fn terminationAction() std.posix.Sigaction {
+    return .{
+        .handler = .{ .handler = requestTermination },
+        .mask = if (builtin.os.tag == .macos) 0 else std.posix.sigemptyset(),
+        .flags = std.posix.SA.RESTART,
+    };
+}
+
+const TerminationHandlers = struct {
+    hup: std.posix.Sigaction,
+    int: std.posix.Sigaction,
+    quit: std.posix.Sigaction,
+    term: std.posix.Sigaction,
+    tstp: std.posix.Sigaction,
+
+    fn install() TerminationHandlers {
+        const action = terminationAction();
+        var previous: TerminationHandlers = undefined;
+        std.posix.sigaction(.HUP, &action, &previous.hup);
+        std.posix.sigaction(.INT, &action, &previous.int);
+        std.posix.sigaction(.QUIT, &action, &previous.quit);
+        std.posix.sigaction(.TERM, &action, &previous.term);
+        std.posix.sigaction(.TSTP, &action, &previous.tstp);
+        return previous;
+    }
+
+    fn suspendProcess(self: TerminationHandlers) !void {
+        std.posix.sigaction(.TSTP, &self.tstp, null);
+        try std.posix.raise(.TSTP);
+        const action = terminationAction();
+        std.posix.sigaction(.TSTP, &action, null);
+    }
+
+    fn deinit(self: TerminationHandlers) void {
+        std.posix.sigaction(.HUP, &self.hup, null);
+        std.posix.sigaction(.INT, &self.int, null);
+        std.posix.sigaction(.QUIT, &self.quit, null);
+        std.posix.sigaction(.TERM, &self.term, null);
+        std.posix.sigaction(.TSTP, &self.tstp, null);
+    }
+};
+
 const core = @import("core");
 const profiles = core.profiles;
 const store_mod = core.store;
@@ -63,6 +132,7 @@ const SecretField = struct {
                     var iter = vaxis.unicode.graphemeIterator(self.buf.items);
                     var last_start: usize = 0;
                     while (iter.next()) |g| last_start = g.start;
+                    std.crypto.secureZero(u8, self.buf.items[last_start..]);
                     self.buf.items.len = last_start;
                     return ctx.consumeAndRedraw();
                 } else if (key.text) |text| {
@@ -121,6 +191,7 @@ const Model = struct {
     /// act on. The screen then shows that message and accepts `q`. A wrong
     /// Primary Password sets `password_error` and keeps the prompt.
     open_error: bool = false,
+    initial_open_pending: bool = true,
 
     store: ?store_mod.Store = null,
     rows: []Row = &.{},
@@ -180,14 +251,16 @@ const Model = struct {
     }
 
     fn deinit(self: *Model) void {
-        if (self.revealed_index != null) self.hideRevealed();
         std.crypto.secureZero(u8, &self.reveal_scratch);
         std.crypto.secureZero(u8, &self.reveal_out);
         std.crypto.secureZero(u8, &self.stdout_out);
         self.password_field.deinit();
         self.search_field.deinit();
         self.match_indices.deinit(self.gpa);
-        for (self.row_lines) |line| self.gpa.free(line);
+        for (self.row_lines) |line| {
+            std.crypto.secureZero(u8, line);
+            self.gpa.free(line);
+        }
         self.gpa.free(self.row_lines);
         self.gpa.free(self.rows);
         if (self.store) |*s| s.deinit();
@@ -213,7 +286,9 @@ const Model = struct {
     fn tryOpen(self: *Model, password: []const u8) void {
         const s = store_mod.Store.open(self.gpa, self.io, self.profile_path, password) catch |err| {
             switch (err) {
-                error.WrongPassword => self.password_error = true,
+                error.WrongPassword => {
+                    if (password.len > 0) self.password_error = true;
+                },
                 else => {
                     self.open_error = true;
                     self.setStatus("{s}", .{friendlyMessage(err)});
@@ -267,12 +342,14 @@ const Model = struct {
             break :blk plain;
         } else masked_password;
 
-        self.gpa.free(self.row_lines[index]);
-        self.row_lines[index] = try std.fmt.allocPrint(
+        const new_line = try std.fmt.allocPrint(
             self.gpa,
             "{s}{s}  {s}  {s}",
             .{ marker, e.hostname, user_display, password_display },
         );
+        std.crypto.secureZero(u8, self.row_lines[index]);
+        self.gpa.free(self.row_lines[index]);
+        self.row_lines[index] = new_line;
         self.rows[index].text.text = self.row_lines[index];
     }
 
@@ -281,7 +358,10 @@ const Model = struct {
         self.revealed_index = null;
         self.pending_account_action = null;
         std.crypto.secureZero(u8, &self.reveal_out);
-        self.refreshRow(idx) catch {};
+        self.refreshRow(idx) catch {
+            std.crypto.secureZero(u8, self.row_lines[idx]);
+            self.rows[idx].text.text = "";
+        };
     }
 
     fn revealAt(self: *Model, index: usize) void {
@@ -290,8 +370,21 @@ const Model = struct {
         }
         self.revealed_index = index;
         self.refreshRow(index) catch |err| {
+            self.revealed_index = null;
+            self.pending_account_action = null;
+            std.crypto.secureZero(u8, &self.reveal_out);
             self.setStatus("reveal failed: {s}", .{friendlyMessage(err)});
         };
+    }
+
+    fn scrubForSuspend(self: *Model) void {
+        self.hideRevealed();
+        self.password_field.clear();
+        std.crypto.secureZero(u8, &self.reveal_scratch);
+        std.crypto.secureZero(u8, &self.reveal_out);
+        std.crypto.secureZero(u8, &self.stdout_out);
+        self.stdout_len = 0;
+        self.pending_account_action = null;
     }
 
     fn selectedEntryIndex(self: *Model) ?usize {
@@ -332,7 +425,7 @@ const Model = struct {
         self.password_error = false;
         self.tryOpen(str);
         self.password_field.clear();
-        if (self.store != null) try ctx.requestFocus(self.list_view.widget());
+        try ctx.requestFocus(self.focusForMode());
         ctx.consumeAndRedraw();
     }
 
@@ -354,7 +447,7 @@ const Model = struct {
             return;
         };
         try ctx.copyToClipboard(plain);
-        copyViaHelper(self.io, self.helpers, plain);
+        const helper_copied = copyViaHelper(self.io, self.helpers, plain);
 
         // A terminal on stdout puts the password into scrollback, into a tmux
         // buffer and into `script` output.
@@ -365,7 +458,10 @@ const Model = struct {
         }
 
         if (self.revealed_index == null) std.crypto.secureZero(u8, &self.reveal_out);
-        self.setStatus("copied", .{});
+        if (helper_copied)
+            self.setStatus("copied", .{})
+        else
+            self.setStatus("copy sent to terminal; no working local clipboard helper", .{});
     }
 
     fn focusForMode(self: *Model) vxfw.Widget {
@@ -383,16 +479,40 @@ const Model = struct {
     fn typeErasedEventHandler(ptr: *anyopaque, ctx: *vxfw.EventContext, event: vxfw.Event) anyerror!void {
         const self: *Model = @ptrCast(@alignCast(ptr));
         switch (event) {
-            .init, .focus_in => {
-                // Focus routing (path_to_focused) becomes correct after the
-                // first draw, so this asks for that draw now. A key typed
-                // before the next incidental redraw (a resize, say) would
-                // otherwise route through a stale, possibly-empty path.
+            .init => {
+                // Draw a complete loading frame before opening SQLite and
+                // deriving keys, which can take long enough to expose the old
+                // shell or an empty alternate screen as a visible flash.
                 ctx.redraw = true;
-                return ctx.requestFocus(self.focusForMode());
+                return ctx.tick(0, self.widget());
+            },
+            .focus_in => {
+                ctx.redraw = true;
+                if (!self.initial_open_pending) return ctx.requestFocus(self.focusForMode());
+            },
+            .tick => {
+                const signal = terminationSignal();
+                if (signal != 0) {
+                    if (signal == @intFromEnum(std.posix.SIG.TSTP)) self.scrubForSuspend();
+                    ctx.quit = true;
+                    return;
+                }
+                if (self.initial_open_pending) {
+                    self.initial_open_pending = false;
+                    self.tryOpen("");
+                    try ctx.requestFocus(self.focusForMode());
+                    ctx.redraw = true;
+                }
+                return ctx.tick(termination_poll_ms, self.widget());
             },
             .key_press => |key| {
                 if (key.matches('c', .{ .ctrl = true })) {
+                    ctx.quit = true;
+                    return;
+                }
+                if (key.matches('z', .{ .ctrl = true })) {
+                    setTerminationSignal(.TSTP);
+                    self.scrubForSuspend();
                     ctx.quit = true;
                     return;
                 }
@@ -453,6 +573,13 @@ const Model = struct {
         const self: *Model = @ptrCast(@alignCast(ptr));
         const max = ctx.max.size();
 
+        if (self.initial_open_pending) {
+            const loading: vxfw.Text = .{ .text = "Opening Firefox profile…", .softwrap = false };
+            return self.composite(ctx, max, &.{.{
+                .origin = .{ .row = 0, .col = 0 },
+                .surface = try loading.draw(ctx.withConstraints(ctx.min, .{ .width = max.width, .height = 1 })),
+            }});
+        }
         if (self.open_error) {
             return self.drawOpenError(ctx, max);
         }
@@ -471,6 +598,19 @@ const Model = struct {
             .origin = .{ .row = 0, .col = 2 },
             .surface = try self.search_field.draw(ctx.withConstraints(ctx.min, .{ .width = max.width -| 2, .height = 1 })),
         };
+        const empty: vxfw.Text = .{
+            .text = if (self.store.?.entries.len == 0)
+                "No saved logins in this Firefox profile."
+            else if (self.match_indices.items.len == 0)
+                "No logins match this search."
+            else
+                "",
+            .softwrap = false,
+        };
+        const empty_surface: vxfw.SubSurface = .{
+            .origin = .{ .row = 2, .col = 0 },
+            .surface = try empty.draw(ctx.withConstraints(ctx.min, .{ .width = max.width, .height = 1 })),
+        };
         const prompt: vxfw.Text = .{ .text = "/", .softwrap = false };
         const prompt_surface: vxfw.SubSurface = .{
             .origin = .{ .row = 0, .col = 0 },
@@ -481,7 +621,7 @@ const Model = struct {
             .surface = try self.status_line.draw(ctx.withConstraints(ctx.min, .{ .width = max.width, .height = 1 })),
         };
 
-        return self.composite(ctx, max, &.{ list_surface, search_surface, prompt_surface, status_surface });
+        return self.composite(ctx, max, &.{ list_surface, empty_surface, search_surface, prompt_surface, status_surface });
     }
 
     fn drawOpenError(self: *Model, ctx: vxfw.DrawContext, max: vxfw.Size) !vxfw.Surface {
@@ -539,10 +679,9 @@ const wayland_helpers: []const []const []const u8 = &.{
 const x11_helpers: []const []const []const u8 = wayland_helpers[1..];
 const macos_helpers: []const []const []const u8 = &.{&.{"pbcopy"}};
 
-/// Best-effort local clipboard write. libvaxis's OSC 52 write (via
-/// ctx.copyToClipboard) never reports failure even when the terminal
-/// ignores it, so this always also shells out.
-fn copyViaHelper(io: std.Io, helpers: []const []const []const u8, text: []const u8) void {
+/// OSC 52 never reports whether the terminal accepted the copy, so this also
+/// tries the configured native helpers and reports whether one succeeded.
+fn copyViaHelper(io: std.Io, helpers: []const []const []const u8, text: []const u8) bool {
     for (helpers) |argv| {
         var child = std.process.spawn(io, .{
             .argv = argv,
@@ -550,19 +689,24 @@ fn copyViaHelper(io: std.Io, helpers: []const []const []const u8, text: []const 
             .stdout = .ignore,
             .stderr = .ignore,
         }) catch continue;
+        var wrote = false;
         if (child.stdin) |stdin| {
             var buf: [4096]u8 = undefined;
             var writer = stdin.writer(io, &buf);
-            writer.interface.writeAll(text) catch {};
-            writer.interface.flush() catch {};
+            wrote = write: {
+                writer.interface.writeAll(text) catch break :write false;
+                writer.interface.flush() catch break :write false;
+                break :write true;
+            };
             stdin.close(io);
             // wait()'s cleanup closes child.stdin itself if non-null. Closing
             // it above and leaving this set would double-close the fd.
             child.stdin = null;
         }
         const term = child.wait(io) catch continue;
-        if (term == .exited and term.exited == 0) return;
+        if (wrote and term == .exited and term.exited == 0) return true;
     }
+    return false;
 }
 
 fn readProfilesIni(io: std.Io, gpa: std.mem.Allocator, firefox_dir: []const u8) ![]u8 {
@@ -651,6 +795,54 @@ fn collectArgs(gpa: std.mem.Allocator, argv: std.process.Args) ![]const []const 
     return list.toOwnedSlice(gpa);
 }
 
+fn runTerminalApp(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    env_map: *std.process.Environ.Map,
+    model: *Model,
+) !void {
+    var buffer: [1024]u8 = undefined;
+    var app: vxfw.App = try .init(io, gpa, env_map, &buffer);
+    defer app.deinit();
+    // Exiting on a key press can leave its separately reported release event
+    // queued for the restored shell, where the CSI-u bytes appear as garbage.
+    app.vx.opts.kitty_keyboard_flags.report_events = false;
+
+    const reported_size = app.tty.getWinsize() catch return error.UnusableTerminalSize;
+    const cols: u16 = if (reported_size.cols == 0) 80 else reported_size.cols;
+    const rows: u16 = if (reported_size.rows == 0) 24 else reported_size.rows;
+    if (reported_size.cols == 0 or reported_size.rows == 0) {
+        var terminal_size: std.posix.winsize = .{
+            .row = rows,
+            .col = cols,
+            .xpixel = reported_size.x_pixel,
+            .ypixel = reported_size.y_pixel,
+        };
+        // libc's ioctl request is signed on Darwin and the BSDs; Linux's is u32.
+        // Zig 0.16 also omits Darwin's _IOW('t', 103, winsize) constant.
+        const set_winsize = if (builtin.os.tag == .linux)
+            std.posix.T.IOCSWINSZ
+        else if (builtin.os.tag == .macos)
+            @as(c_int, @bitCast(@as(u32, 0x80087467)))
+        else
+            @as(c_int, @bitCast(@as(u32, @intCast(std.posix.T.IOCSWINSZ))));
+        const ioctl_result = std.posix.system.ioctl(
+            app.tty.fd.handle,
+            set_winsize,
+            @intFromPtr(&terminal_size),
+        );
+        if (std.posix.errno(ioctl_result) != .SUCCESS) return error.UnusableTerminalSize;
+    }
+    try app.vx.resize(gpa, app.tty.writer(), .{
+        .cols = cols,
+        .rows = rows,
+        .x_pixel = reported_size.x_pixel,
+        .y_pixel = reported_size.y_pixel,
+    });
+
+    try app.run(model.widget(), .{});
+}
+
 pub fn main(init: std.process.Init) !u8 {
     const io = init.io;
     const gpa = init.gpa;
@@ -702,16 +894,35 @@ pub fn main(init: std.process.Init) !u8 {
     else
         &.{};
 
+    termination_signal = 0;
+    const handlers = TerminationHandlers.install();
+    defer handlers.deinit();
+
     const model = try Model.init(gpa, io, profile, helpers);
     defer model.deinit();
 
-    model.tryOpen("");
+    var signal: u8 = 0;
+    while (true) {
+        runTerminalApp(io, gpa, init.environ_map, model) catch |err| switch (err) {
+            error.UnusableTerminalSize => {
+                try write(io, .stderr(), "keywise: terminal reported an unusable size\n");
+                return 1;
+            },
+            else => return err,
+        };
+        signal = terminationSignal();
+        if (signal != @intFromEnum(std.posix.SIG.TSTP)) break;
 
-    var buffer: [1024]u8 = undefined;
-    var app: vxfw.App = try .init(io, gpa, init.environ_map, &buffer);
-    defer app.deinit();
+        // App.deinit has restored termios and the primary screen before the
+        // process stops. After `fg`, construct a fresh App around the same
+        // scrubbed model instead of trying to reuse vaxis's reader thread.
+        try handlers.suspendProcess();
+        signal = terminationSignal();
+        if (signal != @intFromEnum(std.posix.SIG.TSTP)) break;
+        termination_signal = 0;
+    }
 
-    try app.run(model.widget(), .{});
+    if (signal != 0) return 128 +| signal;
 
     // std.Io.Threaded installs a SIGPIPE handler (Threaded.zig:1661), so a
     // reader that exited first gives error.BrokenPipe here. A `try`
