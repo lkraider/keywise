@@ -6,11 +6,11 @@
     "architecture": {
         "64bit": {
             "url": "https://github.com/lkraider/keywise/releases/download/v2.2.0/Keywise-2.2.0-windows-x86_64.zip",
-            "hash": "0ce0d0b0563e1e9a8b7cf49fb1e4ff39a9ca8789896a9f1b6da2303972153f46"
+            "hash": "a8f556a3d6a47330c3ac0b17fe2b5538332e03aa39d83c4ca535e4e25bfbfd37"
         },
         "arm64": {
             "url": "https://github.com/lkraider/keywise/releases/download/v2.2.0/Keywise-2.2.0-windows-arm64.zip",
-            "hash": "1f375b66cb6ceddaffb77ab3730817220f7057c5393b223a842238cd2f67318f"
+            "hash": "a8f556a3d6a47330c3ac0b17fe2b5538332e03aa39d83c4ca535e4e25bfbfd37"
         }
     },
     "shortcuts": [

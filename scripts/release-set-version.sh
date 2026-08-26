@@ -8,8 +8,8 @@
 # left at the old version stops the release before it uploads anything.
 #
 # Formula/keywise.rb and Casks/keywise-app.rb also hold a SHA-256 of the
-# built artifact. Read those from ci.yml's reproducible-build job and paste them
-# in. This script leaves them alone.
+# built artifact. scripts/release-set-hashes.sh writes those from CI.
+# This script leaves them alone.
 set -eu
 
 mode=write
