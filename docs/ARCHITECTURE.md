@@ -97,9 +97,8 @@ handler.
 The Swift files above are one-shot tools. `docs-screenshots.sh` and
 `wine-check.sh` each compile the ones they need with `swiftc -O` into their
 own work directory. Both create a wine prefix per run and call
-`wine-shutdown.sh` from their cleanup trap. `wineserver -k` does not
-terminate every helper process wine starts. `wine-shutdown.sh` handles the
-remainder.
+`wine-shutdown.sh` from their cleanup trap. `wine-shutdown.sh` kills
+wine's helper processes that survive `wineserver -k`.
 
 ### A panic on Windows shows a message box
 
@@ -237,7 +236,7 @@ and the cloud clipboard.
 
 Both apps clear the clipboard 30 seconds after a copy. Each checks the
 clipboard serial number before clearing, so a copy from another program
-survives. The TUI has no timer.
+survives. The TUI does not clear the clipboard.
 
 ## Limits
 

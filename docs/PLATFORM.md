@@ -58,7 +58,8 @@ SIGHUP, SIGINT, SIGQUIT and SIGTERM cause a clean exit. The signal handler
 restores termios and the prior signal action. Ctrl-Z (SIGTSTP) scrubs
 visible and typed secrets, tears down vaxis and stops. After `fg`, the app
 constructs a fresh vaxis reader around the same model. Signal handlers use
-atomic operations only. Terminal I/O stays outside signal context.
+atomic operations only. Terminal I/O stays outside signal context. Panics
+call `vaxis.recover` to restore the terminal.
 
 Before the event loop, the TUI reads `TIOCGWINSZ` and seeds vaxis with
 that size. A zero row or column gets an 80×24 fallback. The TUI draws a

@@ -23,8 +23,8 @@ arm64.
 file filters on CKA_ID `f8000000000000000000000000000001` and object class
 `a0 = 00 00 00 04`.
 
-The column count in `nssPrivate` varies: 192 in the `unmigrated` fixture,
-193 in every other one. The reader resolves column positions from the
+`nssPrivate` declares 192 columns in the `unmigrated` fixture and 193 in
+every other one. The reader resolves column positions from the
 `CREATE TABLE` text.
 
 ### Two master keys, one key id
@@ -122,6 +122,10 @@ confirms the Primary Password before any key material is unwrapped.
   3DES. Firefox 152.0.6 writes no others. A profile using any other
   cipher stops at `error.UnsupportedCipher` from `sdr.parse`. Adding one
   means adding its OID and an implementation.
+- `sqlitedb.zig` caps the b-tree walk at 24 stack frames and at the file's
+  own page count. A crafted `key4.db` with a cyclic or fan-out b-tree hits
+  one of these limits and returns `error.QueryFailed`.
+  `core/testdata/fanout.db` exercises the page budget.
 - Reading `key4.db` while Firefox has it open works. Verified against
   Firefox 152.0.6 running with its `.parentlock` held, decrypting the
   same 1701 entries as a closed-Firefox run, and no `key4.db-wal`
