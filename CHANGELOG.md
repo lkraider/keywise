@@ -2,6 +2,38 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.0] - 2026-08-26
+
+### Fixed
+
+- The Primary Password prompt showed "Wrong Primary Password. Try again:"
+  before the user typed anything. The app tried an empty password on startup
+  and set the prompt to its error state when that attempt failed. The prompt
+  now stays clean until the user submits a non-empty password. (#1)
+- The password-check routine caught every decryption error and reported
+  "wrong password". Only a PKCS #7 padding failure maps to that message now.
+  Other errors propagate with their real cause.
+- A missing `logins.json` returned `FileNotFound`. It returns an empty
+  store now, matching a fresh Firefox profile that has `key4.db` but no
+  `logins.json` yet.
+- Secret buffers (decrypted keys, passwords, hash state objects) were not
+  zeroed on every exit path. They are wiped in teardown, error, and
+  suspend paths across core, TUI, and Win32.
+- The Win32 app left destination buffers uncleared when a reveal or copy
+  failed.
+- `profiles.zig` leaked memory when `toOwnedSlice` succeeded but a later
+  `append` failed.
+
+### Added
+
+- Scoop package for Windows (`scoop bucket add keywise
+  https://github.com/lkraider/keywise && scoop install keywise`).
+- A PTY-driven test suite for the Linux TUI (`scripts/linux-tui-check.py`).
+  It covers signals, suspend/resume, Primary Password, account confirmation,
+  and clipboard copy.
+- C API: failed calls now clear their output pointers.
+  `core/test/smoke.c` tests this contract.
+
 ## [2.1.0] - 2026-08-24
 
 ### Fixed
