@@ -141,6 +141,18 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // tui/src/model.zig imports core and std only. This test runs on the
+    // host that builds the exe.
+    const tui_model_tests = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("tui/src/model.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "core", .module = core_mod }},
+    }) });
+    const run_tui_model = b.addRunArtifact(tui_model_tests);
+    if (test_run_always) run_tui_model.has_side_effects = true;
+    test_step.dependOn(&run_tui_model.step);
+
     const vaxis_dep = b.dependency("libvaxis", .{ .target = target, .optimize = optimize });
 
     const tui_mod = b.createModule(.{

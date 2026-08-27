@@ -94,12 +94,10 @@ const store_mod = core.store;
 const friendlyMessage = core.messages.friendly;
 
 const cli = @import("args.zig");
+const tui_model = @import("model.zig");
 const build_options = @import("build_options");
 
-const masked_password = "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}";
 const secret_buffer_len = 8192;
-const AccountAction = enum { reveal, copy };
-const PendingAccountAction = struct { index: usize, action: AccountAction };
 
 /// A password prompt with its own tiny buffer. Its application-owned copy of
 /// the Primary Password is wiped explicitly instead of being left to a generic
@@ -217,48 +215,26 @@ const Model = struct {
     gpa: std.mem.Allocator,
     io: std.Io,
     profile_path: []const u8,
-    /// `main` reads WAYLAND_DISPLAY and DISPLAY and picks the local helper
-    /// chain before constructing the model.
     helpers: []const []const []const u8,
+
+    model: tui_model.Model,
 
     password_field: SecretField,
     password_error: bool = false,
-    /// Set when the profile failed to open with a message the user cannot
-    /// act on. The screen then shows that message and accepts `q`. A wrong
-    /// Primary Password sets `password_error` and keeps the prompt.
     open_error: bool = false,
     initial_open_pending: bool = true,
 
-    store: ?store_mod.Store = null,
     rows: []Row = &.{},
-    row_lines: [][]u8 = &.{}, // owned per-row formatted line, freed on rebuild
-    match_indices: std.ArrayList(usize) = .empty,
+    row_lines: [][]u8 = &.{},
 
     search_field: vxfw.TextField,
     list_view: vxfw.ListView = .{ .children = .{ .slice = &.{} } },
 
-    /// Plain letters must stay typeable in the search field, so `y`/`q` and
-    /// the other single-key shortcuts only fire in `.normal` mode, when the
-    /// list holds focus and the search field does not. `/` enters `.search`.
-    /// `enter` or `escape` in the search field returns to `.normal`.
     mode: enum { normal, search } = .normal,
 
-    revealed_index: ?usize = null,
-    /// Account credentials require the same action on the same row twice, so
-    /// moving between account rows cannot reuse a confirmation.
-    pending_account_action: ?PendingAccountAction = null,
-    reveal_scratch: [secret_buffer_len]u8 = undefined,
-    reveal_out: [secret_buffer_len]u8 = undefined,
-
-    /// Filled by `y` when stdout is a pipe or a file. `main` writes it once,
-    /// after app.run returns. Bytes already in the pipe cannot be retracted.
-    /// A write per press would send every password of the run, with nothing
-    /// between them.
     stdout_out: [secret_buffer_len]u8 = undefined,
     stdout_len: usize = 0,
 
-    status: [160]u8 = undefined,
-    status_len: usize = 0,
     status_line: vxfw.Text = .{ .text = "", .softwrap = false },
 
     fn init(
@@ -267,37 +243,35 @@ const Model = struct {
         profile_path: []const u8,
         helpers: []const []const []const u8,
     ) !*Model {
-        const model = try gpa.create(Model);
-        errdefer gpa.destroy(model);
-        model.* = .{
+        const self = try gpa.create(Model);
+        errdefer gpa.destroy(self);
+        self.* = .{
             .gpa = gpa,
             .io = io,
             .profile_path = profile_path,
             .helpers = helpers,
+            .model = .init(gpa, io),
             .password_field = SecretField.init(gpa),
             .search_field = .init(gpa),
         };
-        model.password_field.userdata = model;
-        model.password_field.onSubmit = Model.onPasswordSubmit;
-        model.search_field.userdata = model;
-        model.search_field.onChange = Model.onSearchChange;
-        return model;
+        self.password_field.userdata = self;
+        self.password_field.onSubmit = Model.onPasswordSubmit;
+        self.search_field.userdata = self;
+        self.search_field.onChange = Model.onSearchChange;
+        return self;
     }
 
     fn deinit(self: *Model) void {
-        std.crypto.secureZero(u8, &self.reveal_scratch);
-        std.crypto.secureZero(u8, &self.reveal_out);
         std.crypto.secureZero(u8, &self.stdout_out);
         self.password_field.deinit();
         self.search_field.deinit();
-        self.match_indices.deinit(self.gpa);
         for (self.row_lines) |line| {
             std.crypto.secureZero(u8, line);
             self.gpa.free(line);
         }
         self.gpa.free(self.row_lines);
         self.gpa.free(self.rows);
-        if (self.store) |*s| s.deinit();
+        self.model.deinit();
         self.gpa.destroy(self);
     }
 
@@ -310,54 +284,60 @@ const Model = struct {
     }
 
     fn setStatus(self: *Model, comptime fmt: []const u8, args: anytype) void {
-        self.status_len = if (std.fmt.bufPrint(&self.status, fmt, args)) |s| s.len else |_| 0;
-        self.status_line.text = self.status[0..self.status_len];
+        self.model.setStatus(fmt, args);
+        self.syncStatus();
     }
 
-    /// Returns no error. A wrong Primary Password sets `password_error`,
-    /// and the prompt asks again. Every other failure sets `open_error` and
-    /// a message through `setStatus`.
+    fn syncStatus(self: *Model) void {
+        self.status_line.text = self.model.status();
+    }
+
     fn tryOpen(self: *Model, password: []const u8) void {
-        self.store = store_mod.Store.open(self.gpa, self.io, self.profile_path, password) catch |err| {
-            switch (err) {
-                error.WrongPassword => {
-                    if (password.len > 0) self.password_error = true;
-                },
-                else => {
+        const result = if (password.len == 0)
+            self.model.open(self.profile_path)
+        else
+            self.model.unlock(self.profile_path, password);
+
+        switch (result) {
+            .opened => {
+                self.buildRows() catch {
                     self.open_error = true;
-                    self.setStatus("{s}", .{friendlyMessage(err)});
-                },
-            }
-            return;
-        };
-        self.buildRows() catch |err| {
-            self.open_error = true;
-            self.setStatus("{s}", .{friendlyMessage(err)});
-            return;
-        };
-        self.setStatus(
-            "{d} logins ({d} tombstones skipped) -- / search, enter reveal, y copy, q quit",
-            .{ self.store.?.entries.len, self.store.?.tombstones_skipped },
-        );
+                    self.setStatus("{s}", .{"out of memory"});
+                    return;
+                };
+                self.setStatus(
+                    "{d} logins ({d} tombstones skipped) -- / search, enter reveal, y copy, q quit",
+                    .{ self.model.entryCount(), self.model.tombstonesSkipped() },
+                );
+            },
+            .needs_password => self.syncStatus(),
+            .wrong_password => {
+                self.password_error = true;
+                self.syncStatus();
+            },
+            .failed => {
+                self.open_error = true;
+                self.syncStatus();
+            },
+        }
     }
 
     fn buildRows(self: *Model) !void {
-        const s = &self.store.?;
-        self.rows = try self.gpa.alloc(Row, s.entries.len);
+        const count = self.model.entryCount();
+        self.rows = try self.gpa.alloc(Row, count);
         for (self.rows) |*r| r.* = .{};
-        self.row_lines = try self.gpa.alloc([]u8, s.entries.len);
+        self.row_lines = try self.gpa.alloc([]u8, count);
         for (self.row_lines) |*l| l.* = &.{};
-        for (s.entries, 0..) |_, i| try self.refreshRow(i);
+        for (0..count) |i| try self.refreshRow(i);
 
         self.list_view = .{
             .children = .{ .builder = .{ .userdata = self, .buildFn = Model.buildListItem } },
-            .item_count = @intCast(s.entries.len),
+            .item_count = @intCast(self.model.rowCount()),
         };
-        try self.rebuildMatches("");
     }
 
     fn refreshRow(self: *Model, index: usize) !void {
-        const s = &self.store.?;
+        const s = &self.model.store.?;
         const e = s.entries[index];
         const marker: []const u8 = switch (e.kind) {
             .account_credential => "[account] ",
@@ -365,10 +345,10 @@ const Model = struct {
             .normal => "",
         };
         const user_display = if (e.legacy_3des) "<3DES, unsupported>" else e.username;
-        const password_display: []const u8 = if (self.revealed_index == index)
-            try s.reveal(index, &self.reveal_scratch, &self.reveal_out)
+        const password_display: []const u8 = if (self.model.revealed_index == index)
+            self.model.reveal_buf[0..self.model.revealed_len]
         else
-            masked_password;
+            tui_model.masked_password;
 
         const new_line = try std.fmt.allocPrint(
             self.gpa,
@@ -381,68 +361,38 @@ const Model = struct {
         self.rows[index].text.text = self.row_lines[index];
     }
 
-    fn wipeRevealBuffers(self: *Model) void {
-        std.crypto.secureZero(u8, &self.reveal_scratch);
-        std.crypto.secureZero(u8, &self.reveal_out);
-    }
-
     fn hideRevealed(self: *Model) void {
-        const idx = self.revealed_index orelse return;
-        self.revealed_index = null;
-        self.pending_account_action = null;
-        self.wipeRevealBuffers();
+        const idx = self.model.revealed_index orelse return;
+        self.model.hideRevealed();
         self.refreshRow(idx) catch {
             std.crypto.secureZero(u8, self.row_lines[idx]);
             self.rows[idx].text.text = "";
         };
     }
 
-    fn revealAt(self: *Model, index: usize) void {
-        defer self.wipeRevealBuffers();
-        if (self.revealed_index) |prev| {
-            if (prev != index) self.hideRevealed();
-        }
-        self.revealed_index = index;
-        self.refreshRow(index) catch |err| {
-            self.revealed_index = null;
-            self.pending_account_action = null;
-            self.setStatus("reveal failed: {s}", .{friendlyMessage(err)});
-        };
-    }
-
     fn scrubForSuspend(self: *Model) void {
-        self.hideRevealed();
+        const prev = self.model.revealed_index;
+        self.model.wipeSecrets();
+        if (prev) |idx| {
+            self.refreshRow(idx) catch {
+                std.crypto.secureZero(u8, self.row_lines[idx]);
+                self.rows[idx].text.text = "";
+            };
+        }
+        self.model.pending_account_action = null;
         self.password_field.clear();
-        self.wipeRevealBuffers();
         std.crypto.secureZero(u8, &self.stdout_out);
         self.stdout_len = 0;
-        self.pending_account_action = null;
     }
 
-    fn confirmAccountAction(self: *Model, index: usize, action: AccountAction) bool {
-        if (self.pending_account_action) |pending| {
-            if (pending.index == index and pending.action == action) {
-                self.pending_account_action = null;
-                return true;
-            }
-        }
-        self.pending_account_action = .{ .index = index, .action = action };
-        return false;
-    }
-
-    fn selectedEntryIndex(self: *Model) ?usize {
-        if (self.match_indices.items.len == 0) return null;
-        const cursor = @min(self.list_view.cursor, self.match_indices.items.len - 1);
-        return self.match_indices.items[cursor];
+    fn selectedRow(self: *Model) ?usize {
+        if (self.model.rowCount() == 0) return null;
+        return @min(self.list_view.cursor, self.model.rowCount() - 1);
     }
 
     fn rebuildMatches(self: *Model, query: []const u8) !void {
-        const s = &self.store.?;
-        try self.match_indices.resize(self.gpa, s.entries.len);
-        const count = s.search(query, self.match_indices.items);
-        self.match_indices.items.len = @min(count, s.entries.len);
-
-        self.list_view.item_count = @intCast(self.match_indices.items.len);
+        try self.model.search(query);
+        self.list_view.item_count = @intCast(self.model.rowCount());
         self.list_view.cursor = 0;
         self.list_view.scroll = .{};
     }
@@ -462,10 +412,10 @@ const Model = struct {
         switch (event) {
             .key_press => |key| {
                 if (!key.matches(vaxis.Key.enter, .{}) and !key.matches('y', .{})) {
-                    self.pending_account_action = null;
+                    self.model.pending_account_action = null;
                 }
             },
-            .mouse, .focus_out => self.pending_account_action = null,
+            .mouse, .focus_out => self.model.pending_account_action = null,
             else => {},
         }
         return self.list_view.handleEvent(ctx, event);
@@ -480,16 +430,15 @@ const Model = struct {
 
     fn buildListItem(ptr: *const anyopaque, idx: usize, _: usize) ?vxfw.Widget {
         const self: *const Model = @ptrCast(@alignCast(ptr));
-        if (idx >= self.match_indices.items.len) return null;
-        const entry_index = self.match_indices.items[idx];
+        const entry_index = self.model.entryIndex(idx) orelse return null;
         return @constCast(&self.rows[entry_index]).widget();
     }
 
     fn onSearchChange(maybe_ptr: ?*anyopaque, ctx: *vxfw.EventContext, str: []const u8) anyerror!void {
         const ptr = maybe_ptr orelse return;
         const self: *Model = @ptrCast(@alignCast(ptr));
-        self.pending_account_action = null;
-        if (self.revealed_index != null) self.hideRevealed();
+        self.model.pending_account_action = null;
+        self.hideRevealed();
         try self.rebuildMatches(str);
         ctx.consumeAndRedraw();
     }
@@ -504,47 +453,39 @@ const Model = struct {
         ctx.consumeAndRedraw();
     }
 
-    /// Copies the row under the cursor. The row stays masked. The plaintext
-    /// buffers are wiped on every return after the account confirmation.
     fn copySelected(self: *Model) void {
-        const idx = self.selectedEntryIndex() orelse {
-            self.pending_account_action = null;
+        const row = self.selectedRow() orelse {
+            self.model.pending_account_action = null;
             return;
         };
-        const s = &self.store.?;
-        if (s.entries[idx].kind == .account_credential and !self.confirmAccountAction(idx, .copy)) {
-            self.setStatus("this copies Firefox Sync account credentials to the clipboard -- press y again to confirm", .{});
-            return;
-        }
-        self.pending_account_action = null;
-        defer self.wipeRevealBuffers();
-        const plain = s.reveal(idx, &self.reveal_scratch, &self.reveal_out) catch |err| {
-            self.setStatus("copy failed: {s}", .{friendlyMessage(err)});
-            return;
-        };
-        // OSC 52 is always attempted before the local helper. A terminal can
-        // reject or ignore it without acknowledging the clipboard write.
-        copyOsc52(self.io, plain) catch {};
-        copyViaHelper(self.io, self.helpers, plain);
+        switch (self.model.requestCopy(row)) {
+            .needs_confirmation => {
+                self.setStatus(
+                    "this copies Firefox Sync account credentials to the clipboard -- press y again to confirm",
+                    .{},
+                );
+            },
+            .copied => |plain| {
+                copyOsc52(self.io, plain) catch {};
+                copyViaHelper(self.io, self.helpers, plain);
 
-        // A terminal on stdout puts the password into scrollback, into a tmux
-        // buffer and into `script` output.
-        if (!(std.Io.File.stdout().isTty(self.io) catch true)) {
-            std.debug.assert(plain.len <= self.stdout_out.len);
-            std.crypto.secureZero(u8, &self.stdout_out);
-            @memcpy(self.stdout_out[0..plain.len], plain);
-            self.stdout_len = plain.len;
-        }
+                if (!(std.Io.File.stdout().isTty(self.io) catch true)) {
+                    std.debug.assert(plain.len <= self.stdout_out.len);
+                    std.crypto.secureZero(u8, &self.stdout_out);
+                    @memcpy(self.stdout_out[0..plain.len], plain);
+                    self.stdout_len = plain.len;
+                }
 
-        self.setStatus("copied", .{});
+                self.model.reportCopied();
+                self.syncStatus();
+            },
+            .failed => self.syncStatus(),
+        }
     }
 
     fn focusForMode(self: *Model) vxfw.Widget {
-        // In the open_error screen nothing but Model itself is drawn.
-        // Requesting focus on password_field there would ask the focus
-        // handler to find a widget that is not in the surface tree at all.
         if (self.open_error) return self.widget();
-        if (self.store == null) return self.password_field.widget();
+        if (self.model.store == null) return self.password_field.widget();
         return switch (self.mode) {
             .normal => self.listWidget(),
             .search => self.search_field.widget(),
@@ -582,7 +523,7 @@ const Model = struct {
             },
             .key_press => |key| {
                 if (key.matches('c', .{ .ctrl = true })) {
-                    self.pending_account_action = null;
+                    self.model.pending_account_action = null;
                     ctx.quit = true;
                     return;
                 }
@@ -592,9 +533,9 @@ const Model = struct {
                     ctx.quit = true;
                     return;
                 }
-                if (self.store == null) {
+                if (self.model.store == null) {
                     if (self.open_error and key.matches('q', .{})) ctx.quit = true;
-                    return; // otherwise routed to password_field by focus
+                    return;
                 }
 
                 if (self.mode == .search) {
@@ -609,36 +550,43 @@ const Model = struct {
                 // .normal mode: the list wrapper holds focus, so plain letters
                 // are free to use as shortcuts.
                 if (key.matches('/', .{})) {
-                    self.pending_account_action = null;
+                    self.model.pending_account_action = null;
                     self.mode = .search;
                     try ctx.requestFocus(self.search_field.widget());
                     return ctx.consumeAndRedraw();
                 }
                 if (key.matches('q', .{})) {
-                    self.pending_account_action = null;
+                    self.model.pending_account_action = null;
                     ctx.quit = true;
                     return;
                 }
                 if (key.matches(vaxis.Key.enter, .{})) {
-                    if (self.selectedEntryIndex()) |idx| {
-                        const kind = self.store.?.entries[idx].kind;
-                        if (kind == .account_credential and
-                            self.revealed_index != idx and
-                            !self.confirmAccountAction(idx, .reveal))
-                        {
-                            self.setStatus("this reveals Firefox Sync account credentials -- press enter again to confirm", .{});
-                            return ctx.consumeAndRedraw();
-                        }
-                        self.pending_account_action = null;
-                        if (self.revealed_index == idx) {
-                            self.hideRevealed();
-                        } else {
-                            self.revealAt(idx);
-                        }
-                        return ctx.consumeAndRedraw();
+                    const row = self.selectedRow() orelse {
+                        self.model.pending_account_action = null;
+                        return;
+                    };
+                    const prev_revealed = self.model.revealed_index;
+                    switch (self.model.toggleReveal(row)) {
+                        .revealed => {
+                            if (prev_revealed) |prev| {
+                                if (prev != self.model.revealed_index.?) {
+                                    self.refreshRow(prev) catch {};
+                                }
+                            }
+                            self.refreshRow(self.model.revealed_index.?) catch {};
+                        },
+                        .hidden => {
+                            if (prev_revealed) |prev| self.refreshRow(prev) catch {};
+                        },
+                        .needs_confirmation => {
+                            self.setStatus(
+                                "this reveals Firefox Sync account credentials -- press enter again to confirm",
+                                .{},
+                            );
+                        },
+                        .failed => self.syncStatus(),
                     }
-                    self.pending_account_action = null;
-                    return;
+                    return ctx.consumeAndRedraw();
                 }
                 if (key.matches('y', .{})) {
                     self.copySelected();
@@ -646,7 +594,7 @@ const Model = struct {
                 }
                 // A confirmation applies only to an immediately repeated
                 // action. Navigation or any unrelated key cancels it.
-                self.pending_account_action = null;
+                self.model.pending_account_action = null;
             },
             else => {},
         }
@@ -666,7 +614,7 @@ const Model = struct {
         if (self.open_error) {
             return self.drawOpenError(ctx, max);
         }
-        if (self.store == null) {
+        if (self.model.store == null) {
             return self.drawPasswordPrompt(ctx, max);
         }
 
@@ -682,9 +630,9 @@ const Model = struct {
             .surface = try self.search_field.draw(ctx.withConstraints(ctx.min, .{ .width = max.width -| 2, .height = 1 })),
         };
         const empty: vxfw.Text = .{
-            .text = if (self.store.?.entries.len == 0)
+            .text = if (self.model.entryCount() == 0)
                 "No saved logins in this Firefox profile."
-            else if (self.match_indices.items.len == 0)
+            else if (self.model.rowCount() == 0)
                 "No logins match this search."
             else
                 "",
