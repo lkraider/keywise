@@ -27,6 +27,8 @@ pub const usage =
     \\Keys:
     \\  /            search, enter or escape leaves the field
     \\  up down k j  move through the list
+    \\  PgDn PgUp    jump one screenful
+    \\  Home End     jump to first / last
     \\  enter        reveal the selected password, again to hide it
     \\  y            copy the selected password. The row stays masked. A copy
     \\               on Linux runs wl-copy from the wl-clipboard package,

@@ -223,6 +223,7 @@ const Model = struct {
     password_error: bool = false,
     open_error: bool = false,
     initial_open_pending: bool = true,
+    viewport_rows: u16 = 24,
 
     rows: []Row = &.{},
     row_lines: [][]u8 = &.{},
@@ -414,6 +415,25 @@ const Model = struct {
                 if (!key.matches(vaxis.Key.enter, .{}) and !key.matches('y', .{})) {
                     self.model.pending_account_action = null;
                 }
+                const count = self.model.rowCount();
+                if (count > 0) {
+                    var jump: ?usize = null;
+                    if (key.matches(vaxis.Key.page_down, .{})) {
+                        jump = @min(self.list_view.cursor + self.viewport_rows, count -| 1);
+                    } else if (key.matches(vaxis.Key.page_up, .{})) {
+                        jump = self.list_view.cursor -| self.viewport_rows;
+                    } else if (key.matches(vaxis.Key.home, .{})) {
+                        jump = 0;
+                    } else if (key.matches(vaxis.Key.end, .{})) {
+                        jump = count -| 1;
+                    }
+                    if (jump) |target| {
+                        self.hideRevealed();
+                        self.model.pending_account_action = null;
+                        self.list_view.jumpToItem(@intCast(target));
+                        return ctx.consumeAndRedraw();
+                    }
+                }
             },
             .mouse, .focus_out => self.model.pending_account_action = null,
             else => {},
@@ -603,6 +623,7 @@ const Model = struct {
     fn typeErasedDrawFn(ptr: *anyopaque, ctx: vxfw.DrawContext) std.mem.Allocator.Error!vxfw.Surface {
         const self: *Model = @ptrCast(@alignCast(ptr));
         const max = ctx.max.size();
+        self.viewport_rows = @intCast(max.height -| 3);
 
         if (self.initial_open_pending) {
             const loading: vxfw.Text = .{ .text = "Opening Firefox profile…", .softwrap = false };
