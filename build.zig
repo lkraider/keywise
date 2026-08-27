@@ -124,6 +124,15 @@ pub fn build(b: *std.Build) void {
     if (test_run_always) run_args.has_side_effects = true;
     test_step.dependOn(&run_args.step);
 
+    const win_args_tests = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("win/src/args.zig"),
+        .target = target,
+        .optimize = optimize,
+    }) });
+    const run_win_args = b.addRunArtifact(win_args_tests);
+    if (test_run_always) run_win_args.has_side_effects = true;
+    test_step.dependOn(&run_win_args.step);
+
     // TUI. core/src/root.zig is the module a front end imports
     // through. A relative import cannot cross from tui/src into core/src.
     const core_mod = b.createModule(.{
@@ -202,7 +211,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "core", .module = core_mod },
             .{ .name = "args", .module = b.createModule(.{
-                .root_source_file = b.path("tui/src/args.zig"),
+                .root_source_file = b.path("win/src/args.zig"),
                 .target = target,
                 .optimize = optimize,
             }) },
