@@ -141,6 +141,15 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const export_tests = b.addTest(.{ .root_module = b.createModule(.{
+        .root_source_file = b.path("core/src/export.zig"),
+        .target = target,
+        .optimize = optimize,
+    }) });
+    const run_export = b.addRunArtifact(export_tests);
+    if (test_run_always) run_export.has_side_effects = true;
+    test_step.dependOn(&run_export.step);
+
     // tui/src/model.zig imports core and std only. This test runs on the
     // host that builds the exe.
     const tui_model_tests = b.addTest(.{ .root_module = b.createModule(.{
