@@ -3,16 +3,26 @@
 
 const std = @import("std");
 
+pub const ExportFormat = enum { csv, json };
+
 pub const Options = struct {
     /// The profile directory to open. Null means read profiles.ini and take
     /// the pick `profiles.resolveDefault` returns.
     profile_path: ?[]const u8 = null,
+    export_path: ?[]const u8 = null,
     list_profiles: bool = false,
     version: bool = false,
     help: bool = false,
+
+    pub fn exportFormat(self: Options) error{BadExtension}!?ExportFormat {
+        const path = self.export_path orelse return null;
+        if (std.mem.endsWith(u8, path, ".csv")) return .csv;
+        if (std.mem.endsWith(u8, path, ".json")) return .json;
+        return error.BadExtension;
+    }
 };
 
-pub const Error = error{ MissingValue, UnknownFlag };
+pub const Error = error{ MissingValue, UnknownFlag, BadExtension };
 
 pub const usage =
     \\keywise -- view a local Firefox profile's saved logins
@@ -20,6 +30,7 @@ pub const usage =
     \\Usage:
     \\  keywise                     open the profile Firefox uses
     \\  keywise --profile <path>    open the profile in <path>
+    \\  keywise --export <file>     export logins to file (.csv or .json)
     \\  keywise --list-profiles     print every profile in profiles.ini
     \\  keywise --version           print the version
     \\  keywise --help              print this text
@@ -59,6 +70,16 @@ pub fn parse(argv: []const []const u8) Error!Options {
             const value = arg["--profile=".len..];
             if (value.len == 0) return error.MissingValue;
             options.profile_path = value;
+        } else if (std.mem.eql(u8, arg, "--export")) {
+            i += 1;
+            if (i >= argv.len) return error.MissingValue;
+            options.export_path = argv[i];
+            _ = try options.exportFormat();
+        } else if (std.mem.startsWith(u8, arg, "--export=")) {
+            const value = arg["--export=".len..];
+            if (value.len == 0) return error.MissingValue;
+            options.export_path = value;
+            _ = try options.exportFormat();
         } else {
             return error.UnknownFlag;
         }
@@ -69,6 +90,7 @@ pub fn parse(argv: []const []const u8) Error!Options {
 test "no arguments leaves every field at its default" {
     const options = try parse(&.{});
     try std.testing.expect(options.profile_path == null);
+    try std.testing.expect(options.export_path == null);
     try std.testing.expect(!options.list_profiles);
     try std.testing.expect(!options.version);
     try std.testing.expect(!options.help);
@@ -104,4 +126,42 @@ test "--version takes no value, so a path after it reports UnknownFlag" {
 test "an unrecognized argument reports UnknownFlag" {
     try std.testing.expectError(error.UnknownFlag, parse(&.{"--colour"}));
     try std.testing.expectError(error.UnknownFlag, parse(&.{"/tmp/p"}));
+}
+
+test "--export takes the next argument" {
+    const options = try parse(&.{ "--export", "/tmp/out.csv" });
+    try std.testing.expectEqualStrings("/tmp/out.csv", options.export_path.?);
+}
+
+test "--export=<path> takes the value after the equals sign" {
+    const options = try parse(&.{"--export=/tmp/out.json"});
+    try std.testing.expectEqualStrings("/tmp/out.json", options.export_path.?);
+}
+
+test "--export with nothing after it reports MissingValue" {
+    try std.testing.expectError(error.MissingValue, parse(&.{"--export"}));
+    try std.testing.expectError(error.MissingValue, parse(&.{"--export="}));
+}
+
+test "--export rejects a path without .csv or .json" {
+    try std.testing.expectError(error.BadExtension, parse(&.{ "--export", "/tmp/out.txt" }));
+    try std.testing.expectError(error.BadExtension, parse(&.{"--export=logins.xml"}));
+}
+
+test "exportFormat returns csv for .csv and json for .json" {
+    const csv_opts = try parse(&.{ "--export", "logins.csv" });
+    try std.testing.expect((try csv_opts.exportFormat()).? == .csv);
+    const json_opts = try parse(&.{ "--export", "logins.json" });
+    try std.testing.expect((try json_opts.exportFormat()).? == .json);
+}
+
+test "exportFormat returns null when no export path is set" {
+    const options = try parse(&.{});
+    try std.testing.expect((try options.exportFormat()) == null);
+}
+
+test "--export combines with --profile" {
+    const options = try parse(&.{ "--profile", "/tmp/p", "--export", "/tmp/out.csv" });
+    try std.testing.expectEqualStrings("/tmp/p", options.profile_path.?);
+    try std.testing.expectEqualStrings("/tmp/out.csv", options.export_path.?);
 }

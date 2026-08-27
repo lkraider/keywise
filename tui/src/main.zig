@@ -917,6 +917,107 @@ fn runTerminalApp(
     try app.run(model.widget(), .{});
 }
 
+fn runExport(io: std.Io, gpa: std.mem.Allocator, profile: []const u8, export_path: []const u8, format: cli.ExportFormat) !u8 {
+    var store = store_mod.Store.open(gpa, io, profile, "") catch |err| switch (err) {
+        error.WrongPassword => blk: {
+            var pw_buf: [1024]u8 = undefined;
+            defer std.crypto.secureZero(u8, &pw_buf);
+            const password = promptPassword(io, &pw_buf) catch {
+                try write(io, .stderr(), "keywise: could not read password from /dev/tty\n");
+                return 1;
+            };
+            break :blk store_mod.Store.open(gpa, io, profile, password) catch |e| {
+                try writeError(io, e);
+                return 1;
+            };
+        },
+        else => {
+            try writeError(io, err);
+            return 1;
+        },
+    };
+    defer store.deinit();
+
+    const cwd = std.Io.Dir.cwd();
+    const file = cwd.createFile(io, export_path, .{
+        .exclusive = true,
+        .permissions = std.Io.File.Permissions.fromMode(0o600),
+    }) catch |err| switch (err) {
+        error.PathAlreadyExists => {
+            try write(io, .stderr(), "keywise: file already exists: ");
+            try write(io, .stderr(), export_path);
+            try write(io, .stderr(), "\n");
+            return 1;
+        },
+        else => {
+            try write(io, .stderr(), "keywise: could not create export file\n");
+            return 1;
+        },
+    };
+    defer file.close(io);
+
+    var file_buf: [32768]u8 = undefined;
+    defer std.crypto.secureZero(u8, &file_buf);
+    var file_writer = file.writer(io, &file_buf);
+
+    const result = switch (format) {
+        .csv => core.@"export".writeCsv(&store, &file_writer.interface),
+        .json => core.@"export".writeJson(&store, &file_writer.interface),
+    } catch {
+        try write(io, .stderr(), "keywise: write failed\n");
+        return 1;
+    };
+    file_writer.interface.flush() catch {
+        try write(io, .stderr(), "keywise: write failed\n");
+        return 1;
+    };
+
+    var msg_buf: [256]u8 = undefined;
+    const msg = std.fmt.bufPrint(&msg_buf, "{d} entries written to {s}\n", .{ result.written, export_path }) catch "export complete\n";
+    try write(io, .stderr(), msg);
+    if (result.failed > 0) {
+        const fail_msg = std.fmt.bufPrint(&msg_buf, "{d} entries failed (3DES)\n", .{result.failed}) catch "";
+        try write(io, .stderr(), fail_msg);
+    }
+    return 0;
+}
+
+fn promptPassword(io: std.Io, buf: []u8) ![]const u8 {
+    const tty = try std.Io.Dir.cwd().openFile(io, "/dev/tty", .{
+        .mode = .read_write,
+        .allow_directory = false,
+    });
+    defer tty.close(io);
+
+    const orig = try std.posix.tcgetattr(tty.handle);
+    var modified = orig;
+    modified.lflag.ECHO = false;
+    try std.posix.tcsetattr(tty.handle, .FLUSH, modified);
+    defer std.posix.tcsetattr(tty.handle, .FLUSH, orig) catch {};
+
+    var write_buf: [128]u8 = undefined;
+    var tty_writer = tty.writer(io, &write_buf);
+    try tty_writer.interface.writeAll("Primary Password: ");
+    try tty_writer.interface.flush();
+
+    var read_buf: [1024]u8 = undefined;
+    var tty_reader = tty.reader(io, &read_buf);
+    const line = try tty_reader.interface.takeDelimiterExclusive('\n');
+    @memcpy(buf[0..line.len], line);
+    std.crypto.secureZero(u8, &read_buf);
+
+    try tty_writer.interface.writeAll("\n");
+    try tty_writer.interface.flush();
+
+    return buf[0..line.len];
+}
+
+fn writeError(io: std.Io, err: anyerror) !void {
+    try write(io, .stderr(), "keywise: ");
+    try write(io, .stderr(), friendlyMessage(err));
+    try write(io, .stderr(), "\n");
+}
+
 pub fn main(init: std.process.Init) !u8 {
     const io = init.io;
     const gpa = init.gpa;
@@ -927,6 +1028,7 @@ pub fn main(init: std.process.Init) !u8 {
         const message = switch (err) {
             error.MissingValue => "keywise: --profile needs a path\n",
             error.UnknownFlag => "keywise: unrecognized argument, see keywise --help\n",
+            error.BadExtension => "keywise: --export path must end in .csv or .json\n",
         };
         try write(io, .stderr(), message);
         return 2;
@@ -958,6 +1060,11 @@ pub fn main(init: std.process.Init) !u8 {
         break :default try resolveDefaultProfile(io, gpa, firefox_dir);
     };
     defer gpa.free(profile);
+
+    if (options.export_path) |export_path| {
+        const format = (options.exportFormat() catch unreachable).?;
+        return runExport(io, gpa, profile, export_path, format);
+    }
 
     const helpers: []const []const []const u8 = if (builtin.os.tag == .macos)
         macos_helpers
