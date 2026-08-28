@@ -39,3 +39,4 @@ pub fn friendly(err: anyerror) []const u8 {
 }
 
 pub const unexpected = "could not read this profile (unexpected error)";
+pub const legacy_3des_placeholder = "<3DES, unsupported>";

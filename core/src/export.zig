@@ -1,6 +1,7 @@
 const std = @import("std");
 const store_mod = @import("store.zig");
 const logins = @import("logins.zig");
+const messages = @import("messages.zig");
 
 pub const WriteResult = struct {
     written: usize = 0,
@@ -10,92 +11,49 @@ pub const WriteResult = struct {
 pub const WriteError = std.Io.Writer.Error || error{TooLarge};
 
 pub fn writeCsv(store: *const store_mod.Store, writer: *std.Io.Writer) WriteError!WriteResult {
-    var scratch: [8192]u8 = undefined;
-    var out: [8192]u8 = undefined;
-    var buf: [32768]u8 = undefined;
-    defer std.crypto.secureZero(u8, &scratch);
-    defer std.crypto.secureZero(u8, &out);
-    defer std.crypto.secureZero(u8, &buf);
-
     try writer.writeAll("\"url\",\"username\",\"password\",\"timePasswordChanged\"\r\n");
-
-    var result: WriteResult = .{};
-    for (store.entries, 0..) |entry, i| {
-        const password = store.reveal(i, &scratch, &out) catch |err| switch (err) {
-            error.LegacyTripleDes => {
-                const row = formatCsvRow(entry, "<3DES, unsupported>", &buf) orelse return error.TooLarge;
-                try writer.writeAll(row);
-                std.crypto.secureZero(u8, &scratch);
-                std.crypto.secureZero(u8, &out);
-                std.crypto.secureZero(u8, &buf);
-                result.failed += 1;
-                continue;
-            },
-            error.TooLarge => return error.TooLarge,
-            else => {
-                const row = formatCsvRow(entry, "<decrypt failed>", &buf) orelse return error.TooLarge;
-                try writer.writeAll(row);
-                std.crypto.secureZero(u8, &scratch);
-                std.crypto.secureZero(u8, &out);
-                std.crypto.secureZero(u8, &buf);
-                result.failed += 1;
-                continue;
-            },
-        };
-        const row = formatCsvRow(entry, password, &buf) orelse return error.TooLarge;
-        try writer.writeAll(row);
-        std.crypto.secureZero(u8, &scratch);
-        std.crypto.secureZero(u8, &out);
-        std.crypto.secureZero(u8, &buf);
-        result.written += 1;
-    }
-    return result;
+    return writeEntries(store, writer, &formatCsvRow);
 }
 
 pub fn writeJson(store: *const store_mod.Store, writer: *std.Io.Writer) WriteError!WriteResult {
+    try writer.writeAll("[\n");
+    const result = try writeEntries(store, writer, &formatJsonEntry);
+    try writer.writeAll("]\n");
+    return result;
+}
+
+fn writeEntries(
+    store: *const store_mod.Store,
+    writer: *std.Io.Writer,
+    comptime formatFn: *const fn (logins.Entry, []const u8, bool, []u8) ?[]const u8,
+) WriteError!WriteResult {
     var scratch: [8192]u8 = undefined;
     var out: [8192]u8 = undefined;
     var buf: [32768]u8 = undefined;
     defer std.crypto.secureZero(u8, &scratch);
     defer std.crypto.secureZero(u8, &out);
     defer std.crypto.secureZero(u8, &buf);
-
-    try writer.writeAll("[\n");
 
     var result: WriteResult = .{};
     const len = store.entries.len;
     for (store.entries, 0..) |entry, i| {
         const is_last = (i == len - 1);
-        const password = store.reveal(i, &scratch, &out) catch |err| switch (err) {
-            error.LegacyTripleDes => {
-                const frag = formatJsonEntry(entry, "<3DES, unsupported>", is_last, &buf) orelse return error.TooLarge;
-                try writer.writeAll(frag);
-                std.crypto.secureZero(u8, &scratch);
-                std.crypto.secureZero(u8, &out);
-                std.crypto.secureZero(u8, &buf);
-                result.failed += 1;
-                continue;
-            },
-            error.TooLarge => return error.TooLarge,
-            else => {
-                const frag = formatJsonEntry(entry, "<decrypt failed>", is_last, &buf) orelse return error.TooLarge;
-                try writer.writeAll(frag);
-                std.crypto.secureZero(u8, &scratch);
-                std.crypto.secureZero(u8, &out);
-                std.crypto.secureZero(u8, &buf);
-                result.failed += 1;
-                continue;
-            },
+        var failed = false;
+        const password: []const u8 = store.reveal(i, &scratch, &out) catch |err| blk: {
+            failed = true;
+            break :blk switch (err) {
+                error.LegacyTripleDes => messages.legacy_3des_placeholder,
+                error.TooLarge => return error.TooLarge,
+                else => "<decrypt failed>",
+            };
         };
-        const frag = formatJsonEntry(entry, password, is_last, &buf) orelse return error.TooLarge;
-        try writer.writeAll(frag);
+        const row = formatFn(entry, password, is_last, &buf) orelse return error.TooLarge;
+        try writer.writeAll(row);
         std.crypto.secureZero(u8, &scratch);
         std.crypto.secureZero(u8, &out);
         std.crypto.secureZero(u8, &buf);
-        result.written += 1;
+        if (failed) result.failed += 1 else result.written += 1;
     }
-
-    try writer.writeAll("]\n");
     return result;
 }
 
@@ -122,13 +80,15 @@ const BufWriter = struct {
     }
 };
 
-pub fn formatCsvRow(entry: logins.Entry, password: []const u8, buf: []u8) ?[]const u8 {
+pub fn formatCsvRow(entry: logins.Entry, password: []const u8, _: bool, buf: []u8) ?[]const u8 {
+    const user_display = if (entry.legacy_3des) messages.legacy_3des_placeholder else entry.username;
+    const pw_display = if (entry.legacy_3des) messages.legacy_3des_placeholder else password;
     var w = BufWriter{ .buf = buf };
     if (!csvQuotedBuf(&w, entry.hostname)) return null;
     if (!w.putByte(',')) return null;
-    if (!csvQuotedBuf(&w, if (entry.legacy_3des) "<3DES, unsupported>" else entry.username)) return null;
+    if (!csvQuotedBuf(&w, user_display)) return null;
     if (!w.putByte(',')) return null;
-    if (!csvQuotedBuf(&w, password)) return null;
+    if (!csvQuotedBuf(&w, pw_display)) return null;
     if (!w.putByte(',')) return null;
     if (!w.putByte('"')) return null;
     const ts = std.fmt.bufPrint(buf[w.pos..], "{d}", .{entry.time_password_changed}) catch return null;
@@ -138,13 +98,15 @@ pub fn formatCsvRow(entry: logins.Entry, password: []const u8, buf: []u8) ?[]con
 }
 
 pub fn formatJsonEntry(entry: logins.Entry, password: []const u8, is_last: bool, buf: []u8) ?[]const u8 {
+    const user_display = if (entry.legacy_3des) messages.legacy_3des_placeholder else entry.username;
+    const pw_display = if (entry.legacy_3des) messages.legacy_3des_placeholder else password;
     var w = BufWriter{ .buf = buf };
     if (!w.put("  {\n    \"url\": ")) return null;
     if (!jsonStringBuf(&w, entry.hostname)) return null;
     if (!w.put(",\n    \"username\": ")) return null;
-    if (!jsonStringBuf(&w, if (entry.legacy_3des) "<3DES, unsupported>" else entry.username)) return null;
+    if (!jsonStringBuf(&w, user_display)) return null;
     if (!w.put(",\n    \"password\": ")) return null;
-    if (!jsonStringBuf(&w, password)) return null;
+    if (!jsonStringBuf(&w, pw_display)) return null;
     if (!w.put(",\n    \"timePasswordChanged\": ")) return null;
     const ts = std.fmt.bufPrint(buf[w.pos..], "{d}", .{entry.time_password_changed}) catch return null;
     w.pos += ts.len;
@@ -206,7 +168,7 @@ fn testEntry(hostname: []const u8, username: []const u8, time: i64) logins.Entry
 test "formatCsvRow quotes fields and escapes internal quotes" {
     var buf: [1024]u8 = undefined;
     const entry = testEntry("https://example.com", "user@example.com", 1714000000000);
-    const row = formatCsvRow(entry, "p4ss\"word", &buf).?;
+    const row = formatCsvRow(entry, "p4ss\"word", false, &buf).?;
     try testing.expectEqualStrings(
         "\"https://example.com\",\"user@example.com\",\"p4ss\"\"word\",\"1714000000000\"\r\n",
         row,
@@ -217,7 +179,7 @@ test "formatCsvRow shows 3DES placeholder for legacy entries" {
     var buf: [1024]u8 = undefined;
     var entry = testEntry("https://old.example.com", "", 1000);
     entry.legacy_3des = true;
-    const row = formatCsvRow(entry, "<3DES, unsupported>", &buf).?;
+    const row = formatCsvRow(entry, messages.legacy_3des_placeholder, false, &buf).?;
     try testing.expectEqualStrings(
         "\"https://old.example.com\",\"<3DES, unsupported>\",\"<3DES, unsupported>\",\"1000\"\r\n",
         row,
@@ -249,7 +211,7 @@ test "formatJsonEntry trailing comma on non-last entry" {
 test "formatCsvRow returns null when buffer is too small" {
     var buf: [10]u8 = undefined;
     const entry = testEntry("https://example.com", "user", 0);
-    try testing.expect(formatCsvRow(entry, "password", &buf) == null);
+    try testing.expect(formatCsvRow(entry, "password", false, &buf) == null);
 }
 
 test "jsonStringBuf escapes control characters" {

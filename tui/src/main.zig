@@ -353,7 +353,7 @@ const Model = struct {
             .extension => "[extension] ",
             .normal => "",
         };
-        const user_display = if (e.legacy_3des) "<3DES, unsupported>" else e.username;
+        const user_display = if (e.legacy_3des) core.messages.legacy_3des_placeholder else e.username;
         const password_display: []const u8 = if (self.model.revealed_index == index)
             self.model.reveal_buf[0..self.model.revealed_len]
         else
