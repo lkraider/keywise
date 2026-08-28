@@ -6,7 +6,7 @@ class Keywise < Formula
   # macOS host, so a local run reproduces this hash. docs/REPRODUCIBLE.md
   # names the settings. ci.yml's reproducible-build job prints it on every
   # push, and release.yml compares it with the asset it uploads.
-  sha256 "8099c44103cc47863bc2de590046236664e8afcc85bf79e347b3d0e15a1ab2b5"
+  sha256 "66f6be91e30b74236aa564ead2ef4640e80eaed60bfbfecc2fe5ae8833cef060"
   license "MIT"
 
   depends_on arch: :arm64
