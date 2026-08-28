@@ -498,6 +498,7 @@ const Model = struct {
 
                 self.model.reportCopied();
                 self.syncStatus();
+                self.model.clearCopy();
             },
             .failed => self.syncStatus(),
         }
@@ -955,6 +956,8 @@ fn runExport(io: std.Io, gpa: std.mem.Allocator, profile: []const u8, export_pat
         },
     };
     defer file.close(io);
+    var export_ok = false;
+    defer if (!export_ok) cwd.deleteFile(io, export_path) catch {};
 
     var file_buf: [32768]u8 = undefined;
     defer std.crypto.secureZero(u8, &file_buf);
@@ -971,6 +974,7 @@ fn runExport(io: std.Io, gpa: std.mem.Allocator, profile: []const u8, export_pat
         try write(io, .stderr(), "keywise: write failed\n");
         return 1;
     };
+    export_ok = true;
 
     var msg_buf: [256]u8 = undefined;
     const msg = std.fmt.bufPrint(&msg_buf, "{d} entries written to {s}\n", .{ result.written, export_path }) catch "export complete\n";
@@ -1001,10 +1005,10 @@ fn promptPassword(io: std.Io, buf: []u8) ![]const u8 {
     try tty_writer.interface.flush();
 
     var read_buf: [1024]u8 = undefined;
+    defer std.crypto.secureZero(u8, &read_buf);
     var tty_reader = tty.reader(io, &read_buf);
     const line = try tty_reader.interface.takeDelimiterExclusive('\n');
     @memcpy(buf[0..line.len], line);
-    std.crypto.secureZero(u8, &read_buf);
 
     try tty_writer.interface.writeAll("\n");
     try tty_writer.interface.flush();

@@ -27,6 +27,8 @@ pub fn writeCsv(store: *const store_mod.Store, writer: *std.Io.Writer) WriteErro
             error.LegacyTripleDes => {
                 const row = formatCsvRow(entry, "<3DES, unsupported>", &buf) orelse return error.TooLarge;
                 try writer.writeAll(row);
+                std.crypto.secureZero(u8, &scratch);
+                std.crypto.secureZero(u8, &out);
                 std.crypto.secureZero(u8, &buf);
                 result.failed += 1;
                 continue;
@@ -35,6 +37,8 @@ pub fn writeCsv(store: *const store_mod.Store, writer: *std.Io.Writer) WriteErro
             else => {
                 const row = formatCsvRow(entry, "<decrypt failed>", &buf) orelse return error.TooLarge;
                 try writer.writeAll(row);
+                std.crypto.secureZero(u8, &scratch);
+                std.crypto.secureZero(u8, &out);
                 std.crypto.secureZero(u8, &buf);
                 result.failed += 1;
                 continue;
@@ -68,6 +72,8 @@ pub fn writeJson(store: *const store_mod.Store, writer: *std.Io.Writer) WriteErr
             error.LegacyTripleDes => {
                 const frag = formatJsonEntry(entry, "<3DES, unsupported>", is_last, &buf) orelse return error.TooLarge;
                 try writer.writeAll(frag);
+                std.crypto.secureZero(u8, &scratch);
+                std.crypto.secureZero(u8, &out);
                 std.crypto.secureZero(u8, &buf);
                 result.failed += 1;
                 continue;
@@ -76,6 +82,8 @@ pub fn writeJson(store: *const store_mod.Store, writer: *std.Io.Writer) WriteErr
             else => {
                 const frag = formatJsonEntry(entry, "<decrypt failed>", is_last, &buf) orelse return error.TooLarge;
                 try writer.writeAll(frag);
+                std.crypto.secureZero(u8, &scratch);
+                std.crypto.secureZero(u8, &out);
                 std.crypto.secureZero(u8, &buf);
                 result.failed += 1;
                 continue;

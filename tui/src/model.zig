@@ -222,8 +222,9 @@ pub const Model = struct {
     }
 
     pub fn setStatus(self: *Model, comptime fmt: []const u8, args: anytype) void {
-        const written = std.fmt.bufPrint(&self.status_buf, fmt, args) catch self.status_buf[0..];
-        self.status_len = written.len;
+        var w: std.Io.Writer = .fixed(&self.status_buf);
+        w.print(fmt, args) catch {};
+        self.status_len = w.end;
     }
 
     fn confirmAccountAction(self: *Model, index: usize, action: AccountAction) bool {
