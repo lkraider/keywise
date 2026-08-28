@@ -95,6 +95,8 @@ One run reads one of them.
 |---|---|
 | `/` | Enter the search field. `enter` or `escape` leaves it. |
 | `↑` `↓`, `k` `j` | Move through the list. |
+| `PgDn` `PgUp` | Jump one screenful. |
+| `Home` `End` | Jump to first or last. |
 | `enter` | Reveal the selected password. Press again to hide it. |
 | `y` | Copy the selected password. The row stays masked. |
 | `q`, `ctrl-c` | Quit. |
@@ -110,6 +112,16 @@ a file. On a terminal it writes nothing.
 keywise | wl-copy             # press y, then q
 keywise > /tmp/p              # the last y of the run lands in the file
 ```
+
+To export logins:
+
+```
+keywise --export logins.csv   # CSV, same format Firefox uses
+keywise --export logins.json  # JSON array
+```
+
+The export prompts for the Primary Password on `/dev/tty` and writes the
+file with mode 0600.
 
 To open another profile:
 

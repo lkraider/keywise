@@ -44,6 +44,7 @@ core/src/
   keydb.zig      reads key4.db, returns the master keys
   logins.zig     decrypts and classifies logins.json entries
   store.zig      owns the arena, the keys, the entries, and the search filter
+  export.zig     writes CSV and JSON from a store
   messages.zig   the text a front end shows for a core failure
   core.zig       exports the C ABI the macOS app links, core/include/keywise.h
   root.zig       the module a front end imports through
@@ -55,6 +56,9 @@ core/test/
   smoke.c        calls every function in keywise.h
 build.zig
 tui/src/        the libvaxis TUI, imports store.zig through root.zig
+  main.zig       event loop, rendering, headless export
+  model.zig      selection, search, reveal state
+  args.zig       --profile, --export, --list-profiles parsing
 macos/          the SwiftUI app, a Swift package linking core.zig's static library
 win/src/        the Win32 app, importing the core module directly
 scripts/                 automation and one-shot validation tools
