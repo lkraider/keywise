@@ -1,5 +1,5 @@
-//! Command line parsing for the TUI. `parse` takes a plain slice, so its
-//! tests need no process.
+//! Command line parsing for the Win32 front end. `parse` takes a plain slice,
+//! so its tests need no process.
 
 const std = @import("std");
 

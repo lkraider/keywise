@@ -71,7 +71,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const tests = b.addTest(.{ .root_module = test_mod });
-    const test_step = b.step("test", "Run the core and TUI tests");
+    const test_step = b.step("test", "Run all tests");
     const run_tests = b.addRunArtifact(tests);
     if (test_run_always) run_tests.has_side_effects = true;
     test_step.dependOn(&run_tests.step);
