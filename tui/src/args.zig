@@ -65,6 +65,7 @@ pub fn parse(argv: []const []const u8) Error!Options {
         } else if (std.mem.eql(u8, arg, "--profile")) {
             i += 1;
             if (i >= argv.len) return error.MissingValue;
+            if (std.mem.startsWith(u8, argv[i], "--")) return error.MissingValue;
             options.profile_path = argv[i];
         } else if (std.mem.startsWith(u8, arg, "--profile=")) {
             const value = arg["--profile=".len..];
@@ -73,6 +74,7 @@ pub fn parse(argv: []const []const u8) Error!Options {
         } else if (std.mem.eql(u8, arg, "--export")) {
             i += 1;
             if (i >= argv.len) return error.MissingValue;
+            if (std.mem.startsWith(u8, argv[i], "--")) return error.MissingValue;
             options.export_path = argv[i];
             _ = try options.exportFormat();
         } else if (std.mem.startsWith(u8, arg, "--export=")) {
@@ -158,6 +160,16 @@ test "exportFormat returns csv for .csv and json for .json" {
 test "exportFormat returns null when no export path is set" {
     const options = try parse(&.{});
     try std.testing.expect((try options.exportFormat()) == null);
+}
+
+test "--profile rejects a flag as its value" {
+    try std.testing.expectError(error.MissingValue, parse(&.{ "--profile", "--version" }));
+    try std.testing.expectError(error.MissingValue, parse(&.{ "--profile", "--export" }));
+}
+
+test "--export rejects a flag as its value" {
+    try std.testing.expectError(error.MissingValue, parse(&.{ "--export", "--profile" }));
+    try std.testing.expectError(error.MissingValue, parse(&.{ "--export", "--version" }));
 }
 
 test "--export combines with --profile" {

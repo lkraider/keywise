@@ -599,13 +599,23 @@ const Model = struct {
                         .revealed => {
                             if (prev_revealed) |prev| {
                                 if (prev != self.model.revealed_index.?) {
-                                    self.refreshRow(prev) catch {};
+                                    self.refreshRow(prev) catch {
+                                        std.crypto.secureZero(u8, self.row_lines[prev]);
+                                        self.rows[prev].text.text = "";
+                                    };
                                 }
                             }
-                            self.refreshRow(self.model.revealed_index.?) catch {};
+                            const ri = self.model.revealed_index.?;
+                            self.refreshRow(ri) catch {
+                                std.crypto.secureZero(u8, self.row_lines[ri]);
+                                self.rows[ri].text.text = "";
+                            };
                         },
                         .hidden => {
-                            if (prev_revealed) |prev| self.refreshRow(prev) catch {};
+                            if (prev_revealed) |prev| self.refreshRow(prev) catch {
+                                std.crypto.secureZero(u8, self.row_lines[prev]);
+                                self.rows[prev].text.text = "";
+                            };
                         },
                         .needs_confirmation => {
                             self.setStatus(
@@ -1052,6 +1062,11 @@ pub fn main(init: std.process.Init) !u8 {
     if (options.version) {
         try write(io, .stdout(), "keywise " ++ build_options.version ++ "\n");
         return 0;
+    }
+
+    if (options.list_profiles and options.export_path != null) {
+        try write(io, .stderr(), "keywise: --list-profiles and --export cannot be combined\n");
+        return 2;
     }
 
     const home = init.environ_map.get("HOME");

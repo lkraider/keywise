@@ -52,6 +52,7 @@ pub fn parse(argv: []const []const u8) Error!Options {
         } else if (std.mem.eql(u8, arg, "--profile")) {
             i += 1;
             if (i >= argv.len) return error.MissingValue;
+            if (std.mem.startsWith(u8, argv[i], "--")) return error.MissingValue;
             options.profile_path = argv[i];
         } else if (std.mem.startsWith(u8, arg, "--profile=")) {
             const value = arg["--profile=".len..];
@@ -97,6 +98,11 @@ test "--list-profiles, --version and --help set their flags" {
 test "--version takes no value, so a path after it reports UnknownFlag" {
     try std.testing.expectError(error.UnknownFlag, parse(&.{ "--version", "/tmp/p" }));
     try std.testing.expectError(error.UnknownFlag, parse(&.{"--version=1"}));
+}
+
+test "--profile rejects a flag as its value" {
+    try std.testing.expectError(error.MissingValue, parse(&.{ "--profile", "--version" }));
+    try std.testing.expectError(error.MissingValue, parse(&.{ "--profile", "--help" }));
 }
 
 test "an unrecognized argument reports UnknownFlag" {
