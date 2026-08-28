@@ -2,6 +2,27 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.3.0] - 2026-08-28
+
+### Fixed
+
+- The status bar showed "(0 tombstones skipped)" on profiles with no
+  deleted logins. The wording is now "deleted logins skipped", and the
+  clause is omitted when the count is zero.
+- A reveal that failed to allocate left the previous row text visible.
+  OOM now wipes the row and blanks it.
+- `--profile --list-profiles` consumed `--list-profiles` as a path
+  value. Flags starting with `--` are rejected as option values.
+
+### Added
+
+- `keywise --export logins.csv` and `keywise --export logins.json`
+  export saved logins to CSV or JSON. The export runs headless: it
+  prompts for the Primary Password on `/dev/tty`, writes the file, and
+  exits. Entries encrypted with legacy 3DES appear as
+  `<3DES, unsupported>`. The file is created with mode 0600.
+- PgUp, PgDn, Home, and End keys navigate the login list.
+
 ## [2.2.0] - 2026-08-26
 
 ### Fixed

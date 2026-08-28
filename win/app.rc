@@ -42,8 +42,8 @@ IDI_APP ICON "icon.ico"
    no version before it existed. scripts/release-set-version.sh writes the version
    fields below. */
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION 2,2,0,0
-PRODUCTVERSION 2,2,0,0
+FILEVERSION 2,3,0,0
+PRODUCTVERSION 2,3,0,0
 FILEFLAGSMASK 0x3fL
 FILEFLAGS 0x0L
 FILEOS VOS_NT_WINDOWS32
@@ -58,12 +58,12 @@ FILESUBTYPE 0x0L
         {
             VALUE "CompanyName", "Paul Eipper"
             VALUE "FileDescription", "Keywise"
-            VALUE "FileVersion", "2.2.0"
+            VALUE "FileVersion", "2.3.0"
             VALUE "InternalName", "Keywise"
             VALUE "LegalCopyright", "Copyright (c) 2026 Paul Eipper. MIT License."
             VALUE "OriginalFilename", "Keywise.exe"
             VALUE "ProductName", "Keywise"
-            VALUE "ProductVersion", "2.2.0"
+            VALUE "ProductVersion", "2.3.0"
         }
     }
     BLOCK "VarFileInfo"
