@@ -277,7 +277,7 @@ def main() -> int:
         "SIGTERM restores terminal modes before exiting with shell status 143",
         binary,
         repo / "core/testdata/fresh",
-        [("wait", "tombstones"), ("signal", signal.SIGTERM)],
+        [("wait", "logins"), ("signal", signal.SIGTERM)],
         env,
         expected_exit=143,
     )
@@ -285,14 +285,14 @@ def main() -> int:
         "SIGTSTP cleans the terminal before rebuilding it after resume",
         binary,
         repo / "core/testdata/fresh",
-        [("wait", "tombstones"), ("suspend", "tombstones"), ("send", b"q")],
+        [("wait", "logins"), ("suspend", "logins"), ("send", b"q")],
         env,
     )
     run_case(
         "SIGTERM received while stopped survives resume and exits with status 143",
         binary,
         repo / "core/testdata/fresh",
-        [("wait", "tombstones"), ("suspend-terminate", 0)],
+        [("wait", "logins"), ("suspend-terminate", 0)],
         env,
         expected_exit=143,
     )
@@ -305,7 +305,7 @@ def main() -> int:
             ("send", b"wrong\r"),
             ("wait", "Wrong"),
             ("send", b"fixture-primary-password-1\r"),
-            ("wait", "tombstones"),
+            ("wait", "logins"),
             ("send", b"q"),
         ],
         env,
@@ -316,7 +316,7 @@ def main() -> int:
         binary,
         repo / "core/testdata/sync-shaped",
         [
-            ("wait", "tombstones"),
+            ("wait", "logins"),
             ("send", b"\x1b[B\x1b[B\x1b[B"),
             ("send", b"\r"),
             ("wait", "to confirm"),
@@ -349,7 +349,7 @@ def main() -> int:
             binary,
             repo / "core/testdata/fresh",
             [
-                ("wait", "tombstones"),
+                ("wait", "logins"),
                 ("send", b"y"),
                 ("wait", "copied"),
                 ("send", b"q"),
