@@ -2,8 +2,6 @@ const std = @import("std");
 const store_mod = @import("store.zig");
 const logins = @import("logins.zig");
 
-pub const ExportFormat = enum { csv, json };
-
 pub const WriteResult = struct {
     written: usize = 0,
     failed: usize = 0,

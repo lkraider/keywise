@@ -306,10 +306,18 @@ const Model = struct {
                     self.setStatus("{s}", .{"out of memory"});
                     return;
                 };
-                self.setStatus(
-                    "{d} logins ({d} tombstones skipped) -- / search, enter reveal, y copy, q quit",
-                    .{ self.model.entryCount(), self.model.tombstonesSkipped() },
-                );
+                const t = self.model.tombstonesSkipped();
+                if (t > 0) {
+                    self.setStatus(
+                        "{d} logins ({d} tombstones skipped) -- / search, enter reveal, y copy, q quit",
+                        .{ self.model.entryCount(), t },
+                    );
+                } else {
+                    self.setStatus(
+                        "{d} logins -- / search, enter reveal, y copy, q quit",
+                        .{self.model.entryCount()},
+                    );
+                }
             },
             .needs_password => self.syncStatus(),
             .wrong_password => {
@@ -980,7 +988,7 @@ fn runExport(io: std.Io, gpa: std.mem.Allocator, profile: []const u8, export_pat
     const msg = std.fmt.bufPrint(&msg_buf, "{d} entries written to {s}\n", .{ result.written, export_path }) catch "export complete\n";
     try write(io, .stderr(), msg);
     if (result.failed > 0) {
-        const fail_msg = std.fmt.bufPrint(&msg_buf, "{d} entries failed (3DES)\n", .{result.failed}) catch "";
+        const fail_msg = std.fmt.bufPrint(&msg_buf, "{d} entries failed to decrypt\n", .{result.failed}) catch "";
         try write(io, .stderr(), fail_msg);
     }
     return 0;
@@ -1030,7 +1038,7 @@ pub fn main(init: std.process.Init) !u8 {
     defer gpa.free(argv);
     const options = cli.parse(argv) catch |err| {
         const message = switch (err) {
-            error.MissingValue => "keywise: --profile needs a path\n",
+            error.MissingValue => "keywise: missing value for option, see keywise --help\n",
             error.UnknownFlag => "keywise: unrecognized argument, see keywise --help\n",
             error.BadExtension => "keywise: --export path must end in .csv or .json\n",
         };
