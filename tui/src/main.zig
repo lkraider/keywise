@@ -309,7 +309,7 @@ const Model = struct {
                 const t = self.model.tombstonesSkipped();
                 if (t > 0) {
                     self.setStatus(
-                        "{d} logins ({d} tombstones skipped) -- / search, enter reveal, y copy, q quit",
+                        "{d} logins ({d} deleted logins skipped) -- / search, enter reveal, y copy, q quit",
                         .{ self.model.entryCount(), t },
                     );
                 } else {
@@ -845,7 +845,7 @@ fn listProfiles(io: std.Io, gpa: std.mem.Allocator, firefox_dir: []const u8) !vo
 /// `--profile` is read makes a populated root a precondition for every run.
 fn resolveFirefoxDir(io: std.Io, gpa: std.mem.Allocator, home: ?[]const u8) !?[]u8 {
     const dir = home orelse {
-        try write(io, .stderr(), "HOME is not set\n");
+        try write(io, .stderr(), "keywise: HOME is not set\n");
         return null;
     };
     return profiles.resolveDir(io, gpa, dir) catch |err| switch (err) {
@@ -995,10 +995,10 @@ fn runExport(io: std.Io, gpa: std.mem.Allocator, profile: []const u8, export_pat
     export_ok = true;
 
     var msg_buf: [256]u8 = undefined;
-    const msg = std.fmt.bufPrint(&msg_buf, "{d} entries written to {s}\n", .{ result.written, export_path }) catch "export complete\n";
+    const msg = std.fmt.bufPrint(&msg_buf, "{d} logins written to {s}\n", .{ result.written, export_path }) catch "export complete\n";
     try write(io, .stderr(), msg);
     if (result.failed > 0) {
-        const fail_msg = std.fmt.bufPrint(&msg_buf, "{d} entries failed to decrypt\n", .{result.failed}) catch "";
+        const fail_msg = std.fmt.bufPrint(&msg_buf, "{d} logins failed to decrypt\n", .{result.failed}) catch "";
         try write(io, .stderr(), fail_msg);
     }
     return 0;

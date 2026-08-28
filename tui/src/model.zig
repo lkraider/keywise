@@ -215,7 +215,7 @@ pub const Model = struct {
     pub fn reportEntryCount(self: *Model) void {
         const tombstones = self.tombstonesSkipped();
         if (tombstones > 0) {
-            self.setStatus("{d} logins ({d} tombstones skipped)", .{ self.entryCount(), tombstones });
+            self.setStatus("{d} logins ({d} deleted logins skipped)", .{ self.entryCount(), tombstones });
         } else {
             self.setStatus("{d} logins", .{self.entryCount()});
         }
@@ -294,7 +294,7 @@ test "an ordinary row reveals on the first activation and hides on the second" {
 
     try testing.expectEqual(Reveal.hidden, m.toggleReveal(row));
     try testing.expectEqualStrings(masked_password, m.passwordText(row));
-    try testing.expectEqualStrings("5 logins (2 tombstones skipped)", m.status());
+    try testing.expectEqualStrings("5 logins (2 deleted logins skipped)", m.status());
 }
 
 test "revealing a second row masks the first" {
@@ -324,7 +324,7 @@ test "a confirmed copy leaves the row masked and the next reveal asks again" {
         .copied => |text| try testing.expect(text.len > 0),
         else => return error.CopyFailed,
     }
-    try testing.expectEqualStrings("5 logins (2 tombstones skipped)", m.status());
+    try testing.expectEqualStrings("5 logins (2 deleted logins skipped)", m.status());
     try testing.expect(m.revealed_index == null);
     m.clearCopy();
 
