@@ -87,6 +87,6 @@ jobs:
           grep -q "$app_sum" ../Casks/keywise-app.rb || { echo "the cask needs $app_sum" >&2; exit 1; }
 
       - name: Create the GitHub release
-        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-from-tag
         env:
           GITHUB_TOKEN: ${{ github.token }}
