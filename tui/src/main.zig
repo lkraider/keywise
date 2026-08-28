@@ -972,8 +972,8 @@ fn runExport(io: std.Io, gpa: std.mem.Allocator, profile: []const u8, export_pat
     var file_writer = file.writer(io, &file_buf);
 
     const result = switch (format) {
-        .csv => core.@"export".writeCsv(&store, &file_writer.interface),
-        .json => core.@"export".writeJson(&store, &file_writer.interface),
+        .csv => core.exporter.writeCsv(&store, &file_writer.interface),
+        .json => core.exporter.writeJson(&store, &file_writer.interface),
     } catch {
         try write(io, .stderr(), "keywise: write failed\n");
         return 1;
