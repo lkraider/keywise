@@ -177,3 +177,8 @@ test "--export combines with --profile" {
     try std.testing.expectEqualStrings("/tmp/p", options.profile_path.?);
     try std.testing.expectEqualStrings("/tmp/out.csv", options.export_path.?);
 }
+
+test "exportFormat rejects uppercase extensions" {
+    try std.testing.expectError(error.BadExtension, parse(&.{ "--export", "out.CSV" }));
+    try std.testing.expectError(error.BadExtension, parse(&.{ "--export", "out.JSON" }));
+}

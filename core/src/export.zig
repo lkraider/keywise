@@ -80,6 +80,7 @@ const BufWriter = struct {
     }
 };
 
+// Firefox's CSV export does not prefix formula-trigger characters.
 pub fn formatCsvRow(entry: logins.Entry, password: []const u8, _: bool, buf: []u8) ?[]const u8 {
     const user_display = if (entry.legacy_3des) messages.legacy_3des_placeholder else entry.username;
     const pw_display = if (entry.legacy_3des) messages.legacy_3des_placeholder else password;
@@ -219,4 +220,47 @@ test "jsonStringBuf escapes control characters" {
     var w = BufWriter{ .buf = &buf };
     try testing.expect(jsonStringBuf(&w, "a\x00b\nc"));
     try testing.expectEqualStrings("\"a\\u0000b\\nc\"", w.written());
+}
+
+test "writeCsv writes all entries from the fresh fixture" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    var store = try store_mod.Store.open(testing.allocator, threaded.io(), "core/testdata/fresh", "");
+    defer store.deinit();
+
+    var out_buf: [32768]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&out_buf);
+    const result = try writeCsv(&store, &writer);
+    try testing.expectEqual(@as(usize, 3), result.written);
+    try testing.expectEqual(@as(usize, 0), result.failed);
+    const output = writer.buffered();
+    try testing.expect(std.mem.startsWith(u8, output, "\"url\",\"username\",\"password\",\"timePasswordChanged\"\r\n"));
+}
+
+test "writeJson writes all entries from the fresh fixture" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    var store = try store_mod.Store.open(testing.allocator, threaded.io(), "core/testdata/fresh", "");
+    defer store.deinit();
+
+    var out_buf: [32768]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&out_buf);
+    const result = try writeJson(&store, &writer);
+    try testing.expectEqual(@as(usize, 3), result.written);
+    try testing.expectEqual(@as(usize, 0), result.failed);
+    const output = writer.buffered();
+    try testing.expect(std.mem.startsWith(u8, output, "[\n"));
+    try testing.expect(std.mem.endsWith(u8, output, "]\n"));
+}
+
+test "writeCsv counts 3DES entries as failed" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    var store = try store_mod.Store.open(testing.allocator, threaded.io(), "core/testdata/unmigrated", "");
+    defer store.deinit();
+
+    var out_buf: [32768]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&out_buf);
+    const result = try writeCsv(&store, &writer);
+    try testing.expect(result.failed > 0);
 }

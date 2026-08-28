@@ -442,3 +442,15 @@ test "a profile with key4.db but no logins.json opens with 0 logins" {
     try testing.expectEqual(@as(usize, 0), m.rowCount());
     try testing.expectEqualStrings("0 logins", m.status());
 }
+
+test "setStatus truncates on overflow and reports the valid length" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    var m = testModel(&threaded);
+    defer m.deinit();
+
+    const long = "A" ** 300;
+    m.setStatus("{s}", .{long});
+    try testing.expectEqual(@as(usize, 256), m.status().len);
+    for (m.status()) |b| try testing.expectEqual(@as(u8, 'A'), b);
+}
