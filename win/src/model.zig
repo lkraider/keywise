@@ -275,8 +275,9 @@ pub const Model = struct {
     }
 
     fn setStatus(self: *Model, comptime fmt: []const u8, args: anytype) void {
-        const written = std.fmt.bufPrint(&self.status_buf, fmt, args) catch self.status_buf[0..];
-        self.status_len = written.len;
+        var w: std.Io.Writer = .fixed(&self.status_buf);
+        w.print(fmt, args) catch {};
+        self.status_len = w.end;
     }
 };
 
@@ -560,4 +561,16 @@ test "openFirst reports the empty list" {
 
     try testing.expect(m.openFirst(&.{}) == null);
     try testing.expectEqualStrings("no Firefox profile found", m.status());
+}
+
+test "setStatus truncates on overflow and reports the valid length" {
+    var threaded: std.Io.Threaded = .init(testing.allocator, .{});
+    defer threaded.deinit();
+    var m = testModel(&threaded);
+    defer m.deinit();
+
+    const long = "A" ** 300;
+    m.setStatus("{s}", .{long});
+    try testing.expectEqual(@as(usize, 256), m.status().len);
+    for (m.status()) |b| try testing.expectEqual(@as(u8, 'A'), b);
 }
