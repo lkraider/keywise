@@ -370,23 +370,24 @@ const Model = struct {
         self.rows[index].text.text = self.row_lines[index];
     }
 
-    fn hideRevealed(self: *Model) void {
-        const idx = self.model.revealed_index orelse return;
-        self.model.hideRevealed();
+    fn safeRefreshRow(self: *Model, idx: usize) void {
         self.refreshRow(idx) catch {
             std.crypto.secureZero(u8, self.row_lines[idx]);
             self.rows[idx].text.text = "";
         };
     }
 
+    fn hideRevealed(self: *Model) void {
+        const idx = self.model.revealed_index orelse return;
+        self.model.hideRevealed();
+        self.safeRefreshRow(idx);
+    }
+
     fn scrubForSuspend(self: *Model) void {
         const prev = self.model.revealed_index;
         self.model.wipeSecrets();
         if (prev) |idx| {
-            self.refreshRow(idx) catch {
-                std.crypto.secureZero(u8, self.row_lines[idx]);
-                self.rows[idx].text.text = "";
-            };
+            self.safeRefreshRow(idx);
         }
         self.model.pending_account_action = null;
         self.password_field.clear();
@@ -614,23 +615,14 @@ const Model = struct {
                         .revealed => {
                             if (prev_revealed) |prev| {
                                 if (prev != self.model.revealed_index.?) {
-                                    self.refreshRow(prev) catch {
-                                        std.crypto.secureZero(u8, self.row_lines[prev]);
-                                        self.rows[prev].text.text = "";
-                                    };
+                                    self.safeRefreshRow(prev);
                                 }
                             }
                             const ri = self.model.revealed_index.?;
-                            self.refreshRow(ri) catch {
-                                std.crypto.secureZero(u8, self.row_lines[ri]);
-                                self.rows[ri].text.text = "";
-                            };
+                            self.safeRefreshRow(ri);
                         },
                         .hidden => {
-                            if (prev_revealed) |prev| self.refreshRow(prev) catch {
-                                std.crypto.secureZero(u8, self.row_lines[prev]);
-                                self.rows[prev].text.text = "";
-                            };
+                            if (prev_revealed) |prev| self.safeRefreshRow(prev);
                         },
                         .needs_confirmation => {
                             self.setStatus(
