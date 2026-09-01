@@ -573,7 +573,22 @@ const Model = struct {
                         try ctx.requestFocus(self.listWidget());
                         return ctx.consumeAndRedraw();
                     }
-                    return; // let the search field handle everything else
+                    const count = self.model.rowCount();
+                    if (count > 0) {
+                        var jump: ?usize = null;
+                        if (key.matches(vaxis.Key.page_down, .{})) {
+                            jump = @min(self.list_view.cursor + self.viewport_rows, count -| 1);
+                        } else if (key.matches(vaxis.Key.page_up, .{})) {
+                            jump = self.list_view.cursor -| self.viewport_rows;
+                        }
+                        if (jump) |target| {
+                            self.hideRevealed();
+                            self.model.pending_account_action = null;
+                            self.list_view.jumpToItem(@intCast(target));
+                            return ctx.consumeAndRedraw();
+                        }
+                    }
+                    return;
                 }
 
                 // .normal mode: the list wrapper holds focus, so plain letters
