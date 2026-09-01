@@ -211,6 +211,13 @@ const Row = struct {
     }
 };
 
+const Screen = union(enum) {
+    loading,
+    password_prompt: struct { wrong: bool },
+    open_error,
+    browser,
+};
+
 const Model = struct {
     gpa: std.mem.Allocator,
     io: std.Io,
@@ -220,9 +227,7 @@ const Model = struct {
     model: tui_model.Model,
 
     password_field: SecretField,
-    password_error: bool = false,
-    open_error: bool = false,
-    initial_open_pending: bool = true,
+    screen: Screen = .loading,
     viewport_rows: u16 = 24,
 
     rows: []Row = &.{},
@@ -302,10 +307,11 @@ const Model = struct {
         switch (result) {
             .opened => {
                 self.buildRows() catch {
-                    self.open_error = true;
+                    self.screen = .open_error;
                     self.setStatus("{s}", .{"out of memory"});
                     return;
                 };
+                self.screen = .browser;
                 const t = self.model.tombstonesSkipped();
                 if (t > 0) {
                     self.setStatus(
@@ -319,13 +325,16 @@ const Model = struct {
                     );
                 }
             },
-            .needs_password => self.syncStatus(),
+            .needs_password => {
+                self.screen = .{ .password_prompt = .{ .wrong = false } };
+                self.syncStatus();
+            },
             .wrong_password => {
-                self.password_error = true;
+                self.screen = .{ .password_prompt = .{ .wrong = true } };
                 self.syncStatus();
             },
             .failed => {
-                self.open_error = true;
+                self.screen = .open_error;
                 self.syncStatus();
             },
         }
@@ -386,9 +395,7 @@ const Model = struct {
     fn scrubForSuspend(self: *Model) void {
         const prev = self.model.revealed_index;
         self.model.wipeSecrets();
-        if (prev) |idx| {
-            self.safeRefreshRow(idx);
-        }
+        if (prev) |idx| self.safeRefreshRow(idx);
         self.model.pending_account_action = null;
         self.password_field.clear();
         std.crypto.secureZero(u8, &self.stdout_out);
@@ -475,7 +482,6 @@ const Model = struct {
     fn onPasswordSubmit(maybe_ptr: ?*anyopaque, ctx: *vxfw.EventContext, str: []const u8) anyerror!void {
         const ptr = maybe_ptr orelse return;
         const self: *Model = @ptrCast(@alignCast(ptr));
-        self.password_error = false;
         self.tryOpen(str);
         self.password_field.clear();
         try ctx.requestFocus(self.focusForMode());
@@ -514,11 +520,13 @@ const Model = struct {
     }
 
     fn focusForMode(self: *Model) vxfw.Widget {
-        if (self.open_error) return self.widget();
-        if (self.model.store == null) return self.password_field.widget();
-        return switch (self.mode) {
-            .normal => self.listWidget(),
-            .search => self.search_field.widget(),
+        return switch (self.screen) {
+            .loading, .open_error => self.widget(),
+            .password_prompt => self.password_field.widget(),
+            .browser => switch (self.mode) {
+                .normal => self.listWidget(),
+                .search => self.search_field.widget(),
+            },
         };
     }
 
@@ -534,7 +542,7 @@ const Model = struct {
             },
             .focus_in => {
                 ctx.redraw = true;
-                if (!self.initial_open_pending) return ctx.requestFocus(self.focusForMode());
+                if (self.screen != .loading) return ctx.requestFocus(self.focusForMode());
             },
             .tick => {
                 const signal = terminationSignal();
@@ -543,8 +551,7 @@ const Model = struct {
                     ctx.quit = true;
                     return;
                 }
-                if (self.initial_open_pending) {
-                    self.initial_open_pending = false;
+                if (self.screen == .loading) {
                     self.tryOpen("");
                     try ctx.requestFocus(self.focusForMode());
                     ctx.redraw = true;
@@ -563,9 +570,13 @@ const Model = struct {
                     ctx.quit = true;
                     return;
                 }
-                if (self.model.store == null) {
-                    if (self.open_error and key.matches('q', .{})) ctx.quit = true;
-                    return;
+                switch (self.screen) {
+                    .browser => {},
+                    .open_error => {
+                        if (key.matches('q', .{})) ctx.quit = true;
+                        return;
+                    },
+                    .loading, .password_prompt => return,
                 }
 
                 if (self.mode == .search) {
@@ -618,8 +629,7 @@ const Model = struct {
                                     self.safeRefreshRow(prev);
                                 }
                             }
-                            const ri = self.model.revealed_index.?;
-                            self.safeRefreshRow(ri);
+                            self.safeRefreshRow(self.model.revealed_index.?);
                         },
                         .hidden => {
                             if (prev_revealed) |prev| self.safeRefreshRow(prev);
@@ -651,18 +661,17 @@ const Model = struct {
         const max = ctx.max.size();
         self.viewport_rows = @intCast(max.height -| 3);
 
-        if (self.initial_open_pending) {
-            const loading: vxfw.Text = .{ .text = "Opening Firefox profile…", .softwrap = false };
-            return self.composite(ctx, max, &.{.{
-                .origin = .{ .row = 0, .col = 0 },
-                .surface = try loading.draw(ctx.withConstraints(ctx.min, .{ .width = max.width, .height = 1 })),
-            }});
-        }
-        if (self.open_error) {
-            return self.drawOpenError(ctx, max);
-        }
-        if (self.model.store == null) {
-            return self.drawPasswordPrompt(ctx, max);
+        switch (self.screen) {
+            .loading => {
+                const loading: vxfw.Text = .{ .text = "Opening Firefox profile…", .softwrap = false };
+                return self.composite(ctx, max, &.{.{
+                    .origin = .{ .row = 0, .col = 0 },
+                    .surface = try loading.draw(ctx.withConstraints(ctx.min, .{ .width = max.width, .height = 1 })),
+                }});
+            },
+            .open_error => return self.drawOpenError(ctx, max),
+            .password_prompt => |pp| return self.drawPasswordPrompt(ctx, max, pp.wrong),
+            .browser => {},
         }
 
         const list_surface: vxfw.SubSurface = .{
@@ -716,9 +725,9 @@ const Model = struct {
         return self.composite(ctx, max, &.{ label_surface, hint_surface });
     }
 
-    fn drawPasswordPrompt(self: *Model, ctx: vxfw.DrawContext, max: vxfw.Size) !vxfw.Surface {
+    fn drawPasswordPrompt(self: *Model, ctx: vxfw.DrawContext, max: vxfw.Size, wrong: bool) !vxfw.Surface {
         const label: vxfw.Text = .{
-            .text = if (self.password_error)
+            .text = if (wrong)
                 "Wrong Primary Password. Try again:"
             else
                 "This profile needs its Primary Password:",
