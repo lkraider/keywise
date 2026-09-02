@@ -32,10 +32,8 @@ depends_build-append port:zig
 use_configure       no
 
 post-extract {
-    file mkdir ${workpath}/deps/${lv_hash}
-    foreach item [glob ${workpath}/libvaxis-${lv_commit}/*] {
-        file copy $item ${workpath}/deps/${lv_hash}/
-    }
+    file mkdir ${workpath}/deps
+    file rename ${workpath}/libvaxis-${lv_commit} ${workpath}/deps/${lv_hash}
 }
 
 build.cmd           ${prefix}/bin/zig

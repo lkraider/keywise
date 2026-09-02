@@ -25,8 +25,8 @@ WRKDIST =	${WRKDIR}/keywise-${V}
 NO_TEST =	Yes
 
 do-build:
-	mkdir -p ${WRKDIR}/.deps/${LV_HASH}
-	cp -R ${WRKDIR}/libvaxis-${LV_COMMIT}/* ${WRKDIR}/.deps/${LV_HASH}/
+	mkdir -p ${WRKDIR}/.deps
+	mv ${WRKDIR}/libvaxis-${LV_COMMIT} ${WRKDIR}/.deps/${LV_HASH}
 	cd ${WRKDIST} && ${LOCALBASE}/bin/zig build \
 		--system ${WRKDIR}/.deps \
 		-Doptimize=ReleaseSafe
