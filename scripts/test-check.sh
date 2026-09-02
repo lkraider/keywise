@@ -13,6 +13,10 @@ for arg in "$@"; do
     esac
 done
 
+# -- Formatting --
+
+find core/src tui/src win/src -name '*.zig' | xargs "$ZIG" fmt --check
+
 # -- Coverage: every file with tests must be reachable from a test root --
 
 roots=$(mktemp)
