@@ -68,3 +68,92 @@ echo "Formula/keywise.rb        $tar_hash"
 echo "Casks/keywise-app.rb      $app_hash"
 echo "bucket/keywise.json x64   $win_x64"
 echo "bucket/keywise.json arm   $win_arm"
+
+# -- Port distinfo and checksums --
+
+version=$(sed -n 's/^ *\.version = "\([^"]*\)".*/\1/p' build.zig.zon)
+lv_commit=$(sed -n 's/.*#\([0-9a-f]\{40\}\)".*/\1/p' build.zig.zon)
+lv_hash=$(sed -n '/\.libvaxis/,/}/{s/^ *\.hash = "\([^"]*\)".*/\1/p;}' build.zig.zon)
+
+for v in "$version" "$lv_commit" "$lv_hash"; do
+    [ -n "$v" ] || { echo "could not parse build.zig.zon" >&2; exit 1; }
+done
+
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+
+src_file="$tmpdir/src.tar.gz"
+lv_file="$tmpdir/lv.tar.gz"
+
+curl -fsSL "https://github.com/lkraider/keywise/archive/refs/tags/v${version}.tar.gz" \
+    -o "$src_file" || { echo "could not download source tarball for v${version}" >&2; exit 1; }
+curl -fsSL "https://github.com/rockorager/libvaxis/archive/${lv_commit}.tar.gz" \
+    -o "$lv_file" || { echo "could not download libvaxis tarball" >&2; exit 1; }
+
+src_sha256=$(shasum -a 256 "$src_file" | cut -d' ' -f1)
+src_size=$(stat -f%z "$src_file")
+lv_sha256=$(shasum -a 256 "$lv_file" | cut -d' ' -f1)
+lv_size=$(stat -f%z "$lv_file")
+
+src_rmd160=$(openssl dgst -rmd160 "$src_file" | awk '{print $NF}')
+lv_rmd160=$(openssl dgst -rmd160 "$lv_file" | awk '{print $NF}')
+
+src_sha256_b64=$(openssl dgst -sha256 -binary "$src_file" | openssl base64 -A)
+lv_sha256_b64=$(openssl dgst -sha256 -binary "$lv_file" | openssl base64 -A)
+
+# FreeBSD distinfo
+fb_src="lkraider-keywise-${version}_GH0.tar.gz"
+cat > ports/freebsd/distinfo <<EOF
+TIMESTAMP = $(date +%s)
+SHA256 (zig/${fb_src}) = ${src_sha256}
+SIZE (zig/${fb_src}) = ${src_size}
+SHA256 (zig/${lv_commit}.tar.gz) = ${lv_sha256}
+SIZE (zig/${lv_commit}.tar.gz) = ${lv_size}
+EOF
+
+# OpenBSD distinfo (base64-encoded SHA256)
+cat > ports/openbsd/distinfo <<EOF
+SHA256 (keywise-${version}.tar.gz) = ${src_sha256_b64}
+SIZE (keywise-${version}.tar.gz) = ${src_size}
+SHA256 (${lv_commit}.tar.gz) = ${lv_sha256_b64}
+SIZE (${lv_commit}.tar.gz) = ${lv_size}
+EOF
+
+# Update libvaxis commit and hash in port Makefiles
+edit ports/freebsd/Makefile \
+    "s|ZIG_TUPLE=.*|ZIG_TUPLE=\tlibvaxis:github.com/rockorager/libvaxis/archive/${lv_commit}.tar.gz:${lv_hash}|"
+edit ports/openbsd/Makefile \
+    "s/^\(LV_COMMIT =[[:space:]]*\).*/\1${lv_commit}/"
+edit ports/openbsd/Makefile \
+    "s/^\(LV_HASH =[[:space:]]*\).*/\1${lv_hash}/"
+edit ports/macports/Portfile \
+    "s/^set lv_commit.*/set lv_commit       ${lv_commit}/"
+edit ports/macports/Portfile \
+    "s/^set lv_hash.*/set lv_hash         ${lv_hash}/"
+
+# MacPorts checksums
+awk -v src_name='${distname}${extract.suffix}' \
+    -v src_rmd="$src_rmd160" -v src_sha="$src_sha256" -v src_sz="$src_size" \
+    -v lv_name='${lv_commit}.tar.gz' \
+    -v lv_rmd="$lv_rmd160" -v lv_sha="$lv_sha256" -v lv_sz="$lv_size" '
+/^checksums/ {
+    printf "checksums           %s \\\n", src_name
+    printf "                    rmd160  %s \\\n", src_rmd
+    printf "                    sha256  %s \\\n", src_sha
+    printf "                    size    %s \\\n", src_sz
+    printf "                    %s \\\n", lv_name
+    printf "                    rmd160  %s \\\n", lv_rmd
+    printf "                    sha256  %s \\\n", lv_sha
+    printf "                    size    %s\n", lv_sz
+    if ($0 ~ /\\[[:space:]]*$/) {
+        while ((getline line) > 0 && line ~ /\\[[:space:]]*$/) {}
+    }
+    next
+}
+{ print }
+' ports/macports/Portfile > ports/macports/Portfile.tmp \
+    && mv ports/macports/Portfile.tmp ports/macports/Portfile
+
+echo "ports/freebsd/distinfo    updated"
+echo "ports/openbsd/distinfo    updated"
+echo "ports/macports/Portfile   checksums updated"

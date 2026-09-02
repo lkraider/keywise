@@ -46,6 +46,9 @@ read_changelog() { sed -n 's/^## \[\([^]]*\)\].*/\1/p' CHANGELOG.md | head -1; }
 read_cask() { sed -n 's/^ *version "\([^"]*\)".*/\1/p' Casks/keywise-app.rb; }
 read_formula() { sed -n 's|.*/download/v\([^/]*\)/.*|\1|p' Formula/keywise.rb; }
 read_scoop() { sed -n 's/^ *"version": "\([^"]*\)".*/\1/p' bucket/keywise.json; }
+read_freebsd() { sed -n 's/^DISTVERSION=[[:space:]]*//p' ports/freebsd/Makefile; }
+read_openbsd() { sed -n 's/^V =[[:space:]]*//p' ports/openbsd/Makefile; }
+read_macports() { sed -n 's/^github\.setup.*keywise \([^ ]*\) v/\1/p' ports/macports/Portfile; }
 
 check() {
     status=0
@@ -56,7 +59,10 @@ check() {
         "CHANGELOG.md=$(read_changelog)" \
         "Casks/keywise-app.rb=$(read_cask)" \
         "Formula/keywise.rb=$(read_formula)" \
-        "bucket/keywise.json=$(read_scoop)"
+        "bucket/keywise.json=$(read_scoop)" \
+        "ports/freebsd/Makefile=$(read_freebsd)" \
+        "ports/openbsd/Makefile=$(read_openbsd)" \
+        "ports/macports/Portfile=$(read_macports)"
     do
         found="${pair#*=}"
         if [ "$found" = "$version" ]; then
@@ -124,5 +130,9 @@ edit bucket/keywise.json \
 if [ "$(read_changelog)" != "$version" ]; then
     edit CHANGELOG.md -e "1,/^## \[Unreleased\]/s/^## \[Unreleased\]/## [$version] - $(date +%Y-%m-%d)/"
 fi
+
+edit ports/freebsd/Makefile -e "s/^\(DISTVERSION=[[:space:]]*\).*/\1$version/"
+edit ports/openbsd/Makefile -e "s/^\(V =[[:space:]]*\).*/\1$version/"
+edit ports/macports/Portfile -e "s/^\(github\.setup[[:space:]]*lkraider keywise \)[^ ]*/\1$version/"
 
 check
