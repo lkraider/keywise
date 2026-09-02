@@ -1,0 +1,47 @@
+# -*- coding: utf-8; mode: tcl; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- vim:fenc=utf-8:ft=tcl:et:sw=4:ts=4:sts=4
+
+PortSystem          1.0
+PortGroup           github 1.0
+
+github.setup        lkraider keywise 2.3.0 v
+revision            0
+categories          security
+license             MIT
+maintainers         {institutoprojetodevida.org:paul @lkraider} openmaintainer
+description         Terminal UI to view Firefox saved logins
+long_description    Keywise reads a local Firefox profile's saved logins \
+                    and displays them in an interactive terminal UI.
+
+set lv_commit       6cab03f8a3faeb58bddf334343889a7f685ba7a7
+set lv_hash         vaxis-0.6.0-BWNV_FcoCgB3Q_LTiQet_GeS23Bd7e224eHloS8PanKZ
+
+master_sites-append https://github.com/rockorager/libvaxis/archive/:lv
+distfiles-append    ${lv_commit}.tar.gz:lv
+
+checksums           ${distname}${extract.suffix} \
+                    rmd160  0000000000000000000000000000000000000000 \
+                    sha256  0000000000000000000000000000000000000000000000000000000000000000 \
+                    size    0 \
+                    ${lv_commit}.tar.gz \
+                    rmd160  0000000000000000000000000000000000000000 \
+                    sha256  0000000000000000000000000000000000000000000000000000000000000000 \
+                    size    0
+
+depends_build-append port:zig
+
+use_configure       no
+
+post-extract {
+    file mkdir ${workpath}/deps/${lv_hash}
+    foreach item [glob ${workpath}/libvaxis-${lv_commit}/*] {
+        file copy $item ${workpath}/deps/${lv_hash}/
+    }
+}
+
+build.cmd           ${prefix}/bin/zig
+build.target        build
+build.args          --system ${workpath}/deps -Doptimize=ReleaseSafe
+
+destroot {
+    xinstall -m 0755 ${worksrcpath}/zig-out/bin/keywise ${destroot}${prefix}/bin/
+}
