@@ -636,8 +636,11 @@ fn runSearch(app: *App) void {
     const len = std.unicode.utf16LeToUtf8(&query, wide_buf[0..n]) catch 0;
 
     app.model.hideRevealed();
-    app.model.search(query[0..len]) catch {};
+    app.model.search(query[0..len]) catch {
+        app.model.setStatus("search failed (out of memory)", .{});
+    };
     refreshRows(app);
+    showStatus(app);
 }
 
 fn selectedRow(app: *App) ?usize {

@@ -274,7 +274,7 @@ pub const Model = struct {
         self.setStatus("{d} logins", .{self.entryCount()});
     }
 
-    fn setStatus(self: *Model, comptime fmt: []const u8, args: anytype) void {
+    pub fn setStatus(self: *Model, comptime fmt: []const u8, args: anytype) void {
         var w: std.Io.Writer = .fixed(&self.status_buf);
         w.print(fmt, args) catch {};
         self.status_len = w.end;
