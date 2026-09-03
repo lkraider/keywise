@@ -41,8 +41,8 @@ gh run watch "$run_id" --exit-status
 echo "==> collecting CI hashes"
 scripts/release-set-hashes.sh "$run_id"
 
-if ! git diff --quiet Formula/ Casks/ bucket/; then
-    git add Formula/ Casks/ bucket/
+if ! git diff --quiet Formula/ Casks/ bucket/ ports/; then
+    git add Formula/ Casks/ bucket/ ports/
     git commit -m "chore: update hashes for ${tag}"
 fi
 
@@ -53,14 +53,5 @@ fi
 
 echo "==> pushing ${tag}"
 git push --atomic origin main "$tag"
-
-echo "==> collecting port distinfo"
-scripts/release-set-hashes.sh ports
-
-if ! git diff --quiet ports/; then
-    git add ports/
-    git commit -m "chore: update port distinfo for ${tag}"
-    git push
-fi
 
 echo "https://github.com/lkraider/keywise/releases/tag/${tag}"
