@@ -11,8 +11,8 @@ LICENSE_FILE=	${WRKSRC}/LICENSE
 
 USES=		zig
 
-USE_GITHUB=	yes
-GH_ACCOUNT=	lkraider
+MASTER_SITES=	https://github.com/lkraider/keywise/releases/download/v${DISTVERSION}/
+DISTFILES=	keywise-${DISTVERSION}-source${EXTRACT_SUFX}
 
 ZIG_TUPLE=	libvaxis:github.com/rockorager/libvaxis/archive/6cab03f8a3faeb58bddf334343889a7f685ba7a7.tar.gz:vaxis-0.6.0-BWNV_FcoCgB3Q_LTiQet_GeS23Bd7e224eHloS8PanKZ
 

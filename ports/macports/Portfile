@@ -4,7 +4,10 @@ PortSystem          1.0
 PortGroup           github 1.0
 
 github.setup        lkraider keywise 2.4.0 v
+github.tarball_from releases
 revision            0
+distname            keywise-${version}-source
+worksrcdir          keywise-${version}
 categories          security
 license             MIT
 maintainers         {institutoprojetodevida.org:paul @lkraider} openmaintainer

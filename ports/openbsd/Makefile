@@ -2,9 +2,8 @@ COMMENT =	terminal UI to view a local Firefox profile's saved logins
 
 V =		2.4.0
 
-GH_ACCOUNT =	lkraider
-GH_PROJECT =	keywise
-GH_TAGNAME =	v${V}
+MASTER_SITES =	https://github.com/lkraider/keywise/releases/download/v${V}/
+DISTFILES =	keywise-${V}-source.tar.gz
 
 CATEGORIES =	security
 
