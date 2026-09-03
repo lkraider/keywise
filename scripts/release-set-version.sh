@@ -121,10 +121,11 @@ edit win/app.rc \
 edit build.zig.zon -e "s/^\( *\.version = \)\".*\"/\1\"$version\"/"
 edit Casks/keywise-app.rb -e "s/^\( *version \)\".*\"/\1\"$version\"/"
 edit Formula/keywise.rb -e "s|/download/v[^/]*/|/download/v$version/|"
-edit bucket/keywise.json \
-    -e "s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" \
-    -e "s|/download/v[^/]*/|/download/v$version/|" \
-    -e "s/Keywise-[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*/Keywise-$version/g"
+jq --indent 4 --arg v "$version" '
+    .version = $v |
+    .architecture["64bit"].url = "https://github.com/lkraider/keywise/releases/download/v\($v)/Keywise-\($v)-windows-x86_64.zip" |
+    .architecture.arm64.url = "https://github.com/lkraider/keywise/releases/download/v\($v)/Keywise-\($v)-windows-arm64.zip"
+' bucket/keywise.json > bucket/keywise.json.tmp && mv bucket/keywise.json.tmp bucket/keywise.json
 
 # A heading that already names this version keeps its date.
 if [ "$(read_changelog)" != "$version" ]; then

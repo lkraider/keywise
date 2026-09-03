@@ -23,10 +23,10 @@
     "autoupdate": {
         "architecture": {
             "64bit": {
-                "url": "https://github.com/lkraider/keywise/releases/download/v2.4.0/Keywise-$version-windows-x86_64.zip"
+                "url": "https://github.com/lkraider/keywise/releases/download/v$version/Keywise-$version-windows-x86_64.zip"
             },
             "arm64": {
-                "url": "https://github.com/lkraider/keywise/releases/download/v2.4.0/Keywise-$version-windows-arm64.zip"
+                "url": "https://github.com/lkraider/keywise/releases/download/v$version/Keywise-$version-windows-arm64.zip"
             }
         }
     }
