@@ -342,6 +342,10 @@ jobs:
               >> "$GITHUB_STEP_SUMMARY"
             echo "$(echo "$1" | tr - _)=$sum" >> "$GITHUB_OUTPUT"
           done
+          echo "tar_hash=$(shasum -a 256 dist1/keywise-aarch64-macos.tar.gz | cut -d' ' -f1)" > archive-hashes.env
+          echo "app_hash=$(shasum -a 256 dist1/Keywise-*-macos.zip | cut -d' ' -f1)" >> archive-hashes.env
+          echo "win_x64=$(shasum -a 256 dist1/Keywise-*-windows-x86_64.zip | cut -d' ' -f1)" >> archive-hashes.env
+          echo "win_arm=$(shasum -a 256 dist1/Keywise-*-windows-arm64.zip | cut -d' ' -f1)" >> archive-hashes.env
 
       - name: Clean every build artifact
         # release-package.sh gives each cross build its own cache and prefix.
@@ -359,7 +363,7 @@ jobs:
           diff <(cd dist1 && shasum -a 256 * | sort) <(cd dist2 && shasum -a 256 * | sort) \
             && echo "reproducible: both packaging runs match byte for byte"
 
-      - name: Hash the versioned source tarball
+      - name: Record port hashes
         run: |
           version=$(sed -n 's/^ *\.version = "\([^"]*\)".*/\1/p' build.zig.zon)
           f="keywise-${version}-source.tar.gz"
@@ -370,8 +374,6 @@ jobs:
           echo "src_sha256_b64=$(openssl dgst -sha256 -binary "$f" | openssl base64 -A)" >> src-hashes.env
           echo "src_size=$(stat -f%z "$f")" >> src-hashes.env
 
-      - name: Hash the libvaxis dependency tarball
-        run: |
           lv_commit=$(sed -n 's/.*#\([0-9a-f]\{40\}\)".*/\1/p' build.zig.zon)
           f="lv-${lv_commit}.tar.gz"
           curl -fsSL "https://github.com/rockorager/libvaxis/archive/${lv_commit}.tar.gz" -o "$f"
@@ -388,4 +390,5 @@ jobs:
           path: |
             src-hashes.env
             lv-hashes.env
+            archive-hashes.env
           retention-days: 90

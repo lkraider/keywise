@@ -1,7 +1,7 @@
 #!/bin/sh
 # Reads hashes from CI and writes them into every packaging file:
-# Formula/, Casks/, bucket/ (binary hashes from the CI log) and
-# ports/ (source + libvaxis hashes from the release-hashes artifact).
+# Formula/, Casks/, bucket/ (binary archive hashes) and
+# ports/ (source + libvaxis hashes), all from the release-hashes artifact.
 #
 #   scripts/release-set-hashes.sh            latest successful CI on this branch
 #   scripts/release-set-hashes.sh <run-id>   a specific CI run
@@ -32,24 +32,19 @@ fi
 
 echo "CI run $run_id"
 
-# --- binary hashes from CI log ---
+# --- hashes from CI artifact ---
 
-job_id=$(gh run view "$run_id" --json jobs \
-    --jq '.jobs[] | select(.name == "reproducible-build") | .databaseId')
-[ -n "$job_id" ] || { echo "no reproducible-build job in run $run_id" >&2; exit 1; }
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
 
-hashes=$(gh run view "$run_id" --log --job "$job_id" 2>/dev/null \
-    | grep "Compare" | grep -oE '[0-9a-f]{64}  [^ ]+' | sort -u -k2,2)
+gh run download "$run_id" -n release-hashes -D "$tmpdir"
 
-pick() { echo "$hashes" | awk -v pat="$1" '$2 ~ pat {print $1; exit}'; }
-
-tar_hash=$(pick 'keywise-aarch64-macos\.tar\.gz$')
-app_hash=$(pick '-macos\.zip$')
-win_x64=$(pick '-windows-x86_64\.zip$')
-win_arm=$(pick '-windows-arm64\.zip$')
+. "$tmpdir/archive-hashes.env"
+. "$tmpdir/src-hashes.env"
+. "$tmpdir/lv-hashes.env"
 
 for v in "$tar_hash" "$app_hash" "$win_x64" "$win_arm"; do
-    [ -n "$v" ] || { echo "could not parse all hashes from CI log" >&2; exit 1; }
+    [ -n "$v" ] || { echo "missing hash in archive-hashes.env" >&2; exit 1; }
 done
 
 edit Formula/keywise.rb \
@@ -68,17 +63,6 @@ echo "Formula/keywise.rb        $tar_hash"
 echo "Casks/keywise-app.rb      $app_hash"
 echo "bucket/keywise.json x64   $win_x64"
 echo "bucket/keywise.json arm   $win_arm"
-
-# --- port hashes from CI artifact ---
-
-tmpdir=$(mktemp -d)
-trap 'rm -rf "$tmpdir"' EXIT
-
-gh run download "$run_id" -n release-hashes -D "$tmpdir"
-
-# CI writes KEY=VALUE pairs with the src_ and lv_ prefixes.
-. "$tmpdir/src-hashes.env"
-. "$tmpdir/lv-hashes.env"
 
 version=$(sed -n 's/^ *\.version = "\([^"]*\)".*/\1/p' build.zig.zon)
 lv_hash=$(sed -n '/\.libvaxis/,/}/{s/^ *\.hash = "\([^"]*\)".*/\1/p;}' build.zig.zon)
