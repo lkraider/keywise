@@ -14,8 +14,9 @@ scripts/release-set-version.sh X.Y.Z
 ```
 
 This writes the version into `build.zig.zon`, `macos/Info.plist`, `win/app.rc`,
-`CHANGELOG.md`, `Formula/keywise.rb`, `Casks/keywise-app.rb` and
-`bucket/keywise.json`. It prints `ok` for each file.
+`CHANGELOG.md`, `Formula/keywise.rb`, `Casks/keywise-app.rb`,
+`bucket/keywise.json`, and the three port files under `ports/`. It prints `ok`
+for each file.
 
 ## 3. Commit and push
 
@@ -35,7 +36,11 @@ scripts/release-set-hashes.sh
 
 The script reads SHA-256 hashes from the `reproducible-build` job in the latest
 successful CI run on the current branch. It writes them into
-`Formula/keywise.rb`, `Casks/keywise-app.rb` and `bucket/keywise.json`.
+`Formula/keywise.rb`, `Casks/keywise-app.rb`, and `bucket/keywise.json`.
+
+It also downloads the source and libvaxis tarballs, computes their checksums,
+and writes `ports/freebsd/distinfo`, `ports/openbsd/distinfo`, and the
+MacPorts `checksums` block in `ports/macports/Portfile`.
 
 The script verifies that the CI run built the same commit as HEAD. Pass a run ID
 as an argument to skip that check:
@@ -47,7 +52,7 @@ scripts/release-set-hashes.sh <run-id>
 ## 5. Commit and push the hashes
 
 ```sh
-git add Formula/keywise.rb Casks/keywise-app.rb bucket/keywise.json
+git add Formula/ Casks/ bucket/ ports/
 git commit -m "chore: point the formula and the cask at vX.Y.Z's hashes"
 git push
 ```
