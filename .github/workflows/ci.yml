@@ -3,6 +3,17 @@ name: CI
 on:
   push:
     branches: [main]
+    # If branch protection with required checks is added, move this
+    # filtering to job-level if: conditions. A workflow skipped by
+    # paths-ignore never reports a status, which blocks required checks.
+    paths-ignore:
+      - 'Formula/**'
+      - 'Casks/**'
+      - 'bucket/**'
+      - 'ports/**'
+      - 'docs/**'
+      - 'CHANGELOG.md'
+      - 'LICENSE'
   pull_request:
   workflow_dispatch:
 
