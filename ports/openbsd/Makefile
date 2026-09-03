@@ -1,6 +1,6 @@
 COMMENT =	terminal UI to view a local Firefox profile's saved logins
 
-V =		2.3.0
+V =		2.4.0
 
 GH_ACCOUNT =	lkraider
 GH_PROJECT =	keywise

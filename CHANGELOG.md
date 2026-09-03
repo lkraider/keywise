@@ -2,6 +2,33 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.4.0] - 2026-09-02
+
+### Fixed
+
+- A search that ran out of memory on Windows showed no feedback. The
+  status bar reports the failure now.
+- A status-bar message longer than 256 characters corrupted the
+  displayed length on Windows.
+- GitHub releases were created with an empty body. They carry the tag
+  annotation now.
+
+### Added
+
+- FreeBSD, OpenBSD and MacPorts port files. Each port builds from
+  source with `zig build --system`.
+- `release-set-version.sh` and `release-set-hashes.sh` update
+  version, checksums, and distinfo across all port files.
+- PgUp and PgDn scroll the login list while the search field is
+  focused.
+- `zig fmt --check` runs in the test suite.
+
+### Changed
+
+- The TUI tracks its screen state (normal, reveal, search) with a
+  tagged union. Code that matched on separate booleans now switches
+  on one value.
+
 ## [2.3.0] - 2026-08-28
 
 ### Fixed

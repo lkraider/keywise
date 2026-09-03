@@ -1,5 +1,5 @@
 PORTNAME=	keywise
-DISTVERSION=	2.3.0
+DISTVERSION=	2.4.0
 CATEGORIES=	security
 
 MAINTAINER=	paul@institutoprojetodevida.org

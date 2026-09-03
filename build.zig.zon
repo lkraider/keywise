@@ -1,6 +1,6 @@
 .{
     .name = .keywise,
-    .version = "2.3.0",
+    .version = "2.4.0",
     .dependencies = .{
         .libvaxis = .{
             .url = "git+https://github.com/rockorager/libvaxis#6cab03f8a3faeb58bddf334343889a7f685ba7a7",

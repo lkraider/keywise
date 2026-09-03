@@ -1,15 +1,15 @@
 {
-    "version": "2.3.0",
+    "version": "2.4.0",
     "description": "Win32 app to view saved logins from a local Firefox profile",
     "homepage": "https://github.com/lkraider/keywise",
     "license": "MIT",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/lkraider/keywise/releases/download/v2.3.0/Keywise-2.3.0-windows-x86_64.zip",
+            "url": "https://github.com/lkraider/keywise/releases/download/v2.4.0/Keywise-2.4.0-windows-x86_64.zip",
             "hash": "d95828d1b294694c3565653f501f2a1e2860f2356cc1a8411a28f794b139c6fb"
         },
         "arm64": {
-            "url": "https://github.com/lkraider/keywise/releases/download/v2.3.0/Keywise-2.3.0-windows-arm64.zip",
+            "url": "https://github.com/lkraider/keywise/releases/download/v2.4.0/Keywise-2.4.0-windows-arm64.zip",
             "hash": "a8f556a3d6a47330c3ac0b17fe2b5538332e03aa39d83c4ca535e4e25bfbfd37"
         }
     },
@@ -23,10 +23,10 @@
     "autoupdate": {
         "architecture": {
             "64bit": {
-                "url": "https://github.com/lkraider/keywise/releases/download/v2.3.0/Keywise-$version-windows-x86_64.zip"
+                "url": "https://github.com/lkraider/keywise/releases/download/v2.4.0/Keywise-$version-windows-x86_64.zip"
             },
             "arm64": {
-                "url": "https://github.com/lkraider/keywise/releases/download/v2.3.0/Keywise-$version-windows-arm64.zip"
+                "url": "https://github.com/lkraider/keywise/releases/download/v2.4.0/Keywise-$version-windows-arm64.zip"
             }
         }
     }
