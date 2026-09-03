@@ -9,3 +9,8 @@
 *.png binary
 *.ico binary
 *.icns binary
+
+Formula/ export-ignore
+Casks/ export-ignore
+bucket/ export-ignore
+ports/ export-ignore

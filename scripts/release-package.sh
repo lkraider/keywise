@@ -82,3 +82,6 @@ for pair in "linux-x86_64 x86_64" "linux-arm64 aarch64"; do
     tar --format ustar --numeric-owner --uid 0 --gid 0 -cf - -C "$(dirname "$bin")" keywise \
         | gzip -n -9 > "$out/keywise-$2-linux.tar.gz"
 done
+
+git archive --format=tar --prefix="keywise-${version}/" \
+    --worktree-attributes HEAD | gzip -n > "$out/keywise-${version}-source.tar.gz"
