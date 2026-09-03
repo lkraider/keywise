@@ -89,6 +89,11 @@ jobs:
             || { echo "the cask needs $app_sum" >&2; exit 1; }
           grep -q "$src_sum" ../ports/freebsd/distinfo \
             || { echo "ports/freebsd/distinfo needs $src_sum" >&2; exit 1; }
+          grep -q "$src_sum" ../ports/macports/Portfile \
+            || { echo "ports/macports/Portfile needs $src_sum" >&2; exit 1; }
+          src_b64=$(echo "$src_sum" | xxd -r -p | base64)
+          grep -q "$src_b64" ../ports/openbsd/distinfo \
+            || { echo "ports/openbsd/distinfo needs $src_b64" >&2; exit 1; }
 
       - name: Create the GitHub release
         run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-from-tag
