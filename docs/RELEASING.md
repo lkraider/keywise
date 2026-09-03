@@ -5,7 +5,24 @@ Steps to ship a version. Run each step in order.
 ## 1. Write the changelog
 
 Edit `CHANGELOG.md`. Replace the `[Unreleased]` heading with the new version
-and today's date. List the changes under it.
+and today's date. List the changes under it. Add the `[Unreleased]` heading
+first if it is missing.
+
+Group entries under `### Fixed`, `### Added`, and `### Changed`.
+
+Each entry describes the effect a user, packager, or contributor sees. Lead with
+what was wrong or what is new. Keep implementation details (function names, data
+structures, writer types) out of the first sentence. Add them in a second
+sentence when a contributor needs them to find the relevant code.
+
+Good: "A search that ran out of memory on Windows showed no feedback. The status
+bar reports the failure now."
+
+Too internal: "`setStatus` in the Win32 model used `bufPrint` and returned the
+full buffer length on overflow. It uses a truncating writer now."
+
+Use `### Changed` for internal refactors that alter the code a contributor reads,
+even when a user sees no difference. State what the code looks like now.
 
 ## 2. Set the version
 
@@ -53,7 +70,7 @@ scripts/release-set-hashes.sh <run-id>
 
 ```sh
 git add Formula/ Casks/ bucket/ ports/
-git commit -m "chore: point the formula and the cask at vX.Y.Z's hashes"
+git commit -m "chore: update hashes for vX.Y.Z"
 git push
 ```
 
