@@ -358,3 +358,34 @@ jobs:
           (cd dist2 && shasum -a 256 * | sort)
           diff <(cd dist1 && shasum -a 256 * | sort) <(cd dist2 && shasum -a 256 * | sort) \
             && echo "reproducible: both packaging runs match byte for byte"
+
+      - name: Hash the versioned source tarball
+        run: |
+          version=$(sed -n 's/^ *\.version = "\([^"]*\)".*/\1/p' build.zig.zon)
+          f="keywise-${version}-source.tar.gz"
+          git archive --format=tar --prefix="keywise-${version}/" \
+              --worktree-attributes HEAD | gzip -n > "$f"
+          echo "src_sha256=$(shasum -a 256 "$f" | cut -d' ' -f1)" > src-hashes.env
+          echo "src_rmd160=$(openssl dgst -rmd160 "$f" | awk '{print $NF}')" >> src-hashes.env
+          echo "src_sha256_b64=$(openssl dgst -sha256 -binary "$f" | openssl base64 -A)" >> src-hashes.env
+          echo "src_size=$(stat -f%z "$f")" >> src-hashes.env
+
+      - name: Hash the libvaxis dependency tarball
+        run: |
+          lv_commit=$(sed -n 's/.*#\([0-9a-f]\{40\}\)".*/\1/p' build.zig.zon)
+          f="lv-${lv_commit}.tar.gz"
+          curl -fsSL "https://github.com/rockorager/libvaxis/archive/${lv_commit}.tar.gz" -o "$f"
+          echo "lv_sha256=$(shasum -a 256 "$f" | cut -d' ' -f1)" > lv-hashes.env
+          echo "lv_rmd160=$(openssl dgst -rmd160 "$f" | awk '{print $NF}')" >> lv-hashes.env
+          echo "lv_sha256_b64=$(openssl dgst -sha256 -binary "$f" | openssl base64 -A)" >> lv-hashes.env
+          echo "lv_size=$(stat -f%z "$f")" >> lv-hashes.env
+          echo "lv_commit=$lv_commit" >> lv-hashes.env
+
+      - name: Upload release hashes
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-hashes
+          path: |
+            src-hashes.env
+            lv-hashes.env
+          retention-days: 90
