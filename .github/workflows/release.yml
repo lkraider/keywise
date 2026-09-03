@@ -75,16 +75,20 @@ jobs:
       # macos-15 runner. A runner image with a newer macOS SDK writes a
       # different LC_UUID, and the committed hash then misses these assets.
       # A mismatch here exits before the upload, so brew reaches no release.
-      - name: Check the Homebrew hashes against these assets
+      - name: Check the committed hashes against these assets
         working-directory: dist
         run: |
           tar_sum=$(awk '$2 == "keywise-aarch64-macos.tar.gz" {print $1}' SHA256SUMS)
           app_sum=$(awk '$2 ~ /-macos\.zip$/ {print $1}' SHA256SUMS)
-          # `grep -q ""` matches every file. awk returns an empty sum when an
-          # artifact name changes, so this test runs ahead of the greps.
-          [ -n "$tar_sum" ] && [ -n "$app_sum" ] || { echo "no macOS sum in SHA256SUMS" >&2; exit 1; }
-          grep -q "$tar_sum" ../Formula/keywise.rb || { echo "Formula/keywise.rb needs $tar_sum" >&2; exit 1; }
-          grep -q "$app_sum" ../Casks/keywise-app.rb || { echo "the cask needs $app_sum" >&2; exit 1; }
+          src_sum=$(awk '$2 ~ /-source\.tar\.gz$/ {print $1}' SHA256SUMS)
+          [ -n "$tar_sum" ] && [ -n "$app_sum" ] && [ -n "$src_sum" ] \
+            || { echo "missing sum in SHA256SUMS" >&2; exit 1; }
+          grep -q "$tar_sum" ../Formula/keywise.rb \
+            || { echo "Formula/keywise.rb needs $tar_sum" >&2; exit 1; }
+          grep -q "$app_sum" ../Casks/keywise-app.rb \
+            || { echo "the cask needs $app_sum" >&2; exit 1; }
+          grep -q "$src_sum" ../ports/freebsd/distinfo \
+            || { echo "ports/freebsd/distinfo needs $src_sum" >&2; exit 1; }
 
       - name: Create the GitHub release
         run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-from-tag
