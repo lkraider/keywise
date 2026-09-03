@@ -16,7 +16,8 @@ set -eu
 version="${1:?usage: release-package.sh <version> <output-dir>}"
 out="${2:?usage: release-package.sh <version> <output-dir>}"
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-zig="$repo_root/zig/zig-aarch64-macos-0.16.0/zig"
+zig_version="${ZIG_VERSION:-0.16.0}"
+zig="$repo_root/zig/zig-aarch64-macos-${zig_version}/zig"
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
 
