@@ -65,6 +65,16 @@ the GitHub release.
 Check the release page. Download one artifact and compare its SHA-256 against
 `SHA256SUMS` in the release.
 
+## 5. Submit the MacPorts update
+
+```sh
+scripts/release-macports-pr.sh
+```
+
+The script syncs the `lkraider/macports-ports` fork with upstream, copies
+`ports/macports/Portfile` into a version-named branch, and opens a PR
+against `macports/macports-ports`.
+
 ## What can go wrong
 
 **Binary hash mismatch in the release workflow.** The release runner's macOS SDK
