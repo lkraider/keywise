@@ -407,6 +407,35 @@ const Model = struct {
         return @min(self.list_view.cursor, self.model.rowCount() - 1);
     }
 
+    fn revealSelected(self: *Model, ctx: *vxfw.EventContext) void {
+        const row = self.selectedRow() orelse {
+            self.model.pending_account_action = null;
+            return;
+        };
+        const prev_revealed = self.model.revealed_index;
+        switch (self.model.toggleReveal(row)) {
+            .revealed => {
+                if (prev_revealed) |prev| {
+                    if (prev != self.model.revealed_index.?) {
+                        self.safeRefreshRow(prev);
+                    }
+                }
+                self.safeRefreshRow(self.model.revealed_index.?);
+            },
+            .hidden => {
+                if (prev_revealed) |prev| self.safeRefreshRow(prev);
+            },
+            .needs_confirmation => {
+                self.setStatus(
+                    "this reveals Firefox Sync account credentials -- press enter again to confirm",
+                    .{},
+                );
+            },
+            .failed => self.syncStatus(),
+        }
+        ctx.consumeAndRedraw();
+    }
+
     fn rebuildMatches(self: *Model, query: []const u8) !void {
         try self.model.search(query);
         self.list_view.item_count = @intCast(self.model.rowCount());
@@ -617,32 +646,8 @@ const Model = struct {
                     return;
                 }
                 if (key.matches(vaxis.Key.enter, .{})) {
-                    const row = self.selectedRow() orelse {
-                        self.model.pending_account_action = null;
-                        return;
-                    };
-                    const prev_revealed = self.model.revealed_index;
-                    switch (self.model.toggleReveal(row)) {
-                        .revealed => {
-                            if (prev_revealed) |prev| {
-                                if (prev != self.model.revealed_index.?) {
-                                    self.safeRefreshRow(prev);
-                                }
-                            }
-                            self.safeRefreshRow(self.model.revealed_index.?);
-                        },
-                        .hidden => {
-                            if (prev_revealed) |prev| self.safeRefreshRow(prev);
-                        },
-                        .needs_confirmation => {
-                            self.setStatus(
-                                "this reveals Firefox Sync account credentials -- press enter again to confirm",
-                                .{},
-                            );
-                        },
-                        .failed => self.syncStatus(),
-                    }
-                    return ctx.consumeAndRedraw();
+                    self.revealSelected(ctx);
+                    return;
                 }
                 if (key.matches('y', .{})) {
                     self.copySelected();
