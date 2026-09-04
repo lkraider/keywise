@@ -298,6 +298,21 @@ const Model = struct {
         self.status_line.text = self.model.status();
     }
 
+    fn setBrowserStatus(self: *Model) void {
+        const t = self.model.tombstonesSkipped();
+        if (t > 0) {
+            self.setStatus(
+                "{d} logins ({d} deleted logins skipped) -- / search, enter reveal, y copy, q quit",
+                .{ self.model.entryCount(), t },
+            );
+        } else {
+            self.setStatus(
+                "{d} logins -- / search, enter reveal, y copy, q quit",
+                .{self.model.entryCount()},
+            );
+        }
+    }
+
     fn tryOpen(self: *Model, password: []const u8) void {
         const result = if (password.len == 0)
             self.model.open(self.profile_path)
@@ -312,18 +327,7 @@ const Model = struct {
                     return;
                 };
                 self.screen = .browser;
-                const t = self.model.tombstonesSkipped();
-                if (t > 0) {
-                    self.setStatus(
-                        "{d} logins ({d} deleted logins skipped) -- / search, esc leave search, enter reveal, y copy, q quit",
-                        .{ self.model.entryCount(), t },
-                    );
-                } else {
-                    self.setStatus(
-                        "{d} logins -- / search, esc leave search, enter reveal, y copy, q quit",
-                        .{self.model.entryCount()},
-                    );
-                }
+                self.setBrowserStatus();
             },
             .needs_password => {
                 self.screen = .{ .password_prompt = .{ .wrong = false } };
@@ -616,6 +620,7 @@ const Model = struct {
                 if (self.mode == .search) {
                     if (key.matches(vaxis.Key.escape, .{})) {
                         self.mode = .normal;
+                        self.setBrowserStatus();
                         try ctx.requestFocus(self.listWidget());
                         return ctx.consumeAndRedraw();
                     }
@@ -650,6 +655,7 @@ const Model = struct {
                 if (key.matches('/', .{})) {
                     self.model.pending_account_action = null;
                     self.mode = .search;
+                    self.setStatus("search -- esc leave, enter reveal, up/down navigate", .{});
                     try ctx.requestFocus(self.search_field.widget());
                     return ctx.consumeAndRedraw();
                 }
