@@ -1,10 +1,5 @@
 cask "keywise-app" do
   version "2.4.0"
-  # This is CI's hash. The zip holds the Swift binary, and its LC_UUID
-  # follows the macOS SDK installed on the build machine, so a local run
-  # writes a different SHA-256. CI builds the asset a release uploads. Read
-  # the hash from ci.yml's macos-test job. That job prints it on
-  # every push.
   sha256 "e5c390da5927ff619885731353d874f3fcdd71bc9911365824c0b44d4cd14140"
 
   url "https://github.com/lkraider/keywise/releases/download/v#{version}/Keywise-#{version}-macos.zip"
@@ -19,9 +14,6 @@ cask "keywise-app" do
 
   zap trash: "~/Library/Preferences/br.com.nkey.Keywise.plist"
 
-  # The app is ad-hoc signed. This project has no Apple Developer ID, so
-  # it is not notarized. Gatekeeper otherwise blocks a first launch as
-  # coming from an unidentified developer.
   caveats do
     <<~EOS
       This app is ad-hoc signed. It is not notarized. On first launch, either:

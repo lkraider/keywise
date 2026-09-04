@@ -2,9 +2,9 @@
 # Builds and packages the release artifacts: the TUI binary, the macOS app,
 # and the Windows app for both architectures.
 #
-# release.yml runs this to build what a release publishes. ci.yml's
-# macos-reproducible job builds once and diffs against macos-test. Every setting
-# below that exists to keep the bytes stable is explained in
+# release.yml runs this to build what a release publishes. CI runs it
+# twice on separate runners and diffs the output. Every setting below
+# that exists to keep the bytes stable is explained in
 # docs/REPRODUCIBLE.md.
 #
 # The cross builds start first and run beside the macOS chain. Each gets its
