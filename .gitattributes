@@ -10,6 +10,11 @@
 *.ico binary
 *.icns binary
 
+.gitattributes export-ignore
+.gitignore export-ignore
+.github/ export-ignore
+docs/ export-ignore
+scripts/ export-ignore
 Formula/ export-ignore
 Casks/ export-ignore
 bucket/ export-ignore
