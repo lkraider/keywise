@@ -609,10 +609,14 @@ const Model = struct {
                 }
 
                 if (self.mode == .search) {
-                    if (key.matches(vaxis.Key.enter, .{}) or key.matches(vaxis.Key.escape, .{})) {
+                    if (key.matches(vaxis.Key.escape, .{})) {
                         self.mode = .normal;
                         try ctx.requestFocus(self.listWidget());
                         return ctx.consumeAndRedraw();
+                    }
+                    if (key.matches(vaxis.Key.enter, .{})) {
+                        self.revealSelected(ctx);
+                        return;
                     }
                     const count = self.model.rowCount();
                     if (count > 0) {
@@ -621,6 +625,10 @@ const Model = struct {
                             jump = @min(self.list_view.cursor + self.viewport_rows, count -| 1);
                         } else if (key.matches(vaxis.Key.page_up, .{})) {
                             jump = self.list_view.cursor -| self.viewport_rows;
+                        } else if (key.matches(vaxis.Key.down, .{})) {
+                            jump = @min(self.list_view.cursor + 1, count -| 1);
+                        } else if (key.matches(vaxis.Key.up, .{})) {
+                            jump = self.list_view.cursor -| 1;
                         }
                         if (jump) |target| {
                             self.hideRevealed();
