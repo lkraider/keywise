@@ -93,7 +93,8 @@ One run reads one of them.
 
 | Key | Does |
 |---|---|
-| `/` | Enter the search field. `enter` or `escape` leaves it. |
+| `/` | Enter the search field. `↑` `↓` navigate results while typing. |
+| `esc` | Leave the search field. |
 | `↑` `↓`, `k` `j` | Move through the list. |
 | `PgDn` `PgUp` | Jump one screenful. |
 | `Home` `End` | Jump to first or last. |

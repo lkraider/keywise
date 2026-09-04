@@ -21,6 +21,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   version, checksums, and distinfo across all port files.
 - PgUp and PgDn scroll the login list while the search field is
   focused.
+- Up and Down arrow keys move the list cursor while the search field
+  is focused. Enter reveals the selected password from search mode.
+  Escape leaves search.
 - `zig fmt --check` runs in the test suite.
 
 ### Changed
