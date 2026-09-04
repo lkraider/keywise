@@ -3,7 +3,7 @@ cask "keywise-app" do
   # This is CI's hash. The zip holds the Swift binary, and its LC_UUID
   # follows the macOS SDK installed on the build machine, so a local run
   # writes a different SHA-256. CI builds the asset a release uploads. Read
-  # the hash from ci.yml's reproducible-build job. That job prints it on
+  # the hash from ci.yml's macos-test job. That job prints it on
   # every push.
   sha256 "e5c390da5927ff619885731353d874f3fcdd71bc9911365824c0b44d4cd14140"
 

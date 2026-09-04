@@ -47,17 +47,18 @@ The script runs these steps:
 1. `release-set-version.sh` writes the version into all tracked files.
 2. Commits and pushes the version bump.
 3. Waits for CI to finish on that commit.
-4. `release-set-hashes.sh` collects CI artifact hashes into Formula, Cask, and
-   bucket files.
+4. `release-set-hashes.sh` collects CI artifact hashes into Formula, Cask,
+   bucket, and port files. CI builds the source tarball and uploads it in
+   the `release-hashes` artifact. The hashes in port distinfo come from
+   that tarball.
 5. Commits the hashes.
 6. Creates the annotated tag from the message file.
 7. Pushes branch and tag atomically.
-8. `release-set-hashes.sh ports` downloads source tarballs and writes port
-   distinfo.
-9. Commits and pushes the port distinfo.
 
-`release.yml` triggers on the tag push. It builds the artifacts, checks the
-committed hashes against them, and creates the GitHub release.
+`release.yml` triggers on the tag push. It downloads the CI source tarball
+so the published asset matches the committed port hashes. It builds the
+remaining artifacts, checks the committed hashes against them, and creates
+the GitHub release.
 
 ## 4. Verify
 
@@ -66,10 +67,16 @@ Check the release page. Download one artifact and compare its SHA-256 against
 
 ## What can go wrong
 
-**Hash mismatch in the release workflow.** The release runner's macOS SDK changed
-between the CI run and the release build. The `LC_UUID` in the Swift binary
-depends on the installed SDK. Re-run CI on the same commit and update the hashes
-again with `release-set-hashes.sh`.
+**Binary hash mismatch in the release workflow.** The release runner's macOS SDK
+changed between the CI run and the release build. The `LC_UUID` in the Swift
+binary depends on the installed SDK. Re-run CI on the same commit and update the
+hashes again with `release-set-hashes.sh`.
+
+**Source tarball hash mismatch.** The release workflow downloads the CI source
+tarball and publishes it. If the CI `release-hashes` artifact expired or the
+workflow cannot find the CI run, it falls back to `git archive`. That fallback
+produces a different tarball because `git archive` embeds the commit SHA in a pax
+global header. Re-run CI on the version-bump commit and update port hashes.
 
 **Version check fails in the release workflow.** A file still holds the old
 version. Run `release-set-version.sh --check X.Y.Z` locally to find it. Fix,

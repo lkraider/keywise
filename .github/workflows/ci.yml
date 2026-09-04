@@ -12,8 +12,11 @@ on:
       - 'bucket/**'
       - 'ports/**'
       - 'docs/**'
+      - '.gitattributes'
+      - '.gitignore'
       - 'CHANGELOG.md'
       - 'LICENSE'
+      - 'README.md'
   pull_request:
   workflow_dispatch:
 
@@ -21,12 +24,18 @@ env:
   ZIG_VERSION: "0.16.0"
 
 jobs:
-  build-and-test:
+  macos-test:
     # The oracle test in core/test/oracle.zig links libsqlite3 through the
     # macOS SDK stub, and the macOS app needs Swift. Package.swift's
     # swift-tools-version asks for Swift 6. macos-15's default Xcode ships
     # Swift 6. macos-14's default Xcode ships Swift 5.10.
     runs-on: macos-15
+
+    outputs:
+      win_x86_64: ${{ steps.sums.outputs.win_x86_64 }}
+      win_arm64: ${{ steps.sums.outputs.win_arm64 }}
+      linux_x86_64: ${{ steps.sums.outputs.linux_x86_64 }}
+      linux_arm64: ${{ steps.sums.outputs.linux_arm64 }}
 
     steps:
       - uses: actions/checkout@v7
@@ -46,22 +55,70 @@ jobs:
           tar -xf zig.tar.xz -C zig
           rm zig.tar.xz
 
-      # One invocation, so the build runner schedules both step trees at once
-      # against one cache. Debug here, and windows-test runs the same suite at
-      # ReleaseSafe.
+      # Debug here; windows-test runs the same suite at ReleaseSafe.
       - name: test-check
         run: ZIG=./zig/zig-aarch64-macos-${ZIG_VERSION}/zig ./scripts/test-check.sh smoke
 
-      - name: Build the Zig core (release, for the macOS app to link)
+      - name: Build the Zig core (release, for swift test to link)
         run: ./zig/zig-aarch64-macos-${ZIG_VERSION}/zig build -Doptimize=ReleaseSafe
 
       - name: swift test
         working-directory: macos
         run: swift test -Xswiftc -F -Xswiftc /Library/Developer/CommandLineTools/Library/Developer/Frameworks
 
-      - name: Bundle the macOS app (release)
-        working-directory: macos
-        run: ./scripts/bundle.sh
+      - name: Package the release artifacts
+        run: |
+          version=$(sed -n 's/^ *\.version = "\([^"]*\)".*/\1/p' build.zig.zon)
+          ./scripts/release-package.sh "$version" dist
+
+      # The binaries release-package.sh cross-compiled. compare-sums reads
+      # these through this job's outputs.
+      - name: Record each cross-compiled binary's sum
+        id: sums
+        run: |
+          for pair in "win-x86_64 Keywise.exe" "win-arm64 Keywise.exe" \
+                      "linux-x86_64 keywise" "linux-arm64 keywise"; do
+            set -- $pair
+            sum=$(shasum -a 256 "out-$1/bin/$2" | cut -d' ' -f1)
+            echo "sha256 $sum  $1  built on macOS ARM64"
+            echo "- \`$1\` built on \`macOS ARM64\`, the host that builds a release: \`$sum\`" \
+              >> "$GITHUB_STEP_SUMMARY"
+            echo "$(echo "$1" | tr - _)=$sum" >> "$GITHUB_OUTPUT"
+          done
+          echo "tar_hash=$(shasum -a 256 dist/keywise-aarch64-macos.tar.gz | cut -d' ' -f1)" > archive-hashes.env
+          echo "app_hash=$(shasum -a 256 dist/Keywise-*-macos.zip | cut -d' ' -f1)" >> archive-hashes.env
+          echo "win_x64=$(shasum -a 256 dist/Keywise-*-windows-x86_64.zip | cut -d' ' -f1)" >> archive-hashes.env
+          echo "win_arm=$(shasum -a 256 dist/Keywise-*-windows-arm64.zip | cut -d' ' -f1)" >> archive-hashes.env
+
+      - name: Record port hashes
+        run: |
+          version=$(sed -n 's/^ *\.version = "\([^"]*\)".*/\1/p' build.zig.zon)
+          mv "dist/keywise-${version}-source.tar.gz" .
+          f="keywise-${version}-source.tar.gz"
+          echo "src_sha256=$(shasum -a 256 "$f" | cut -d' ' -f1)" > src-hashes.env
+          echo "src_rmd160=$(openssl dgst -rmd160 "$f" | awk '{print $NF}')" >> src-hashes.env
+          echo "src_sha256_b64=$(openssl dgst -sha256 -binary "$f" | openssl base64 -A)" >> src-hashes.env
+          echo "src_size=$(stat -f%z "$f")" >> src-hashes.env
+
+          lv_commit=$(sed -n 's/.*#\([0-9a-f]\{40\}\)".*/\1/p' build.zig.zon)
+          f="lv-${lv_commit}.tar.gz"
+          curl -fsSL "https://github.com/rockorager/libvaxis/archive/${lv_commit}.tar.gz" -o "$f"
+          echo "lv_sha256=$(shasum -a 256 "$f" | cut -d' ' -f1)" > lv-hashes.env
+          echo "lv_rmd160=$(openssl dgst -rmd160 "$f" | awk '{print $NF}')" >> lv-hashes.env
+          echo "lv_sha256_b64=$(openssl dgst -sha256 -binary "$f" | openssl base64 -A)" >> lv-hashes.env
+          echo "lv_size=$(stat -f%z "$f")" >> lv-hashes.env
+          echo "lv_commit=$lv_commit" >> lv-hashes.env
+
+      - name: Upload release hashes
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-hashes
+          path: |
+            src-hashes.env
+            lv-hashes.env
+            archive-hashes.env
+            keywise-*-source.tar.gz
+          retention-days: 90
 
 
   windows-test:
@@ -99,7 +156,7 @@ jobs:
       # undefined memory with
       # 0xAA, as Debug does, and keeps the bounds, overflow and alignment
       # checks. It also runs the optimizer, so this step tests the code
-      # generation of a released exe. build-and-test runs the suite in Debug.
+      # generation of a released exe. macos-test runs the suite in Debug.
       - name: Test and build the app twice, in parallel
         id: build
         shell: pwsh
@@ -259,11 +316,11 @@ jobs:
         run: python3 scripts/linux-tui-check.py zig-out/bin/keywise
 
   compare-sums:
-    # Asserts that every build host produced the same exe. reproducible-build,
+    # Asserts that every build host produced the same exe. macos-test,
     # windows-test and windows-arm-test each publish one sum per target they
-    # build, and `needs` holds this job until all three have finished. Nothing
+    # build, and `needs` holds this job until all have finished. Nothing
     # here builds, so the runner that starts fastest runs it.
-    needs: [reproducible-build, windows-test, windows-arm-test, linux-test, linux-arm-test]
+    needs: [macos-test, windows-test, windows-arm-test, linux-test, linux-arm-test]
     runs-on: ubuntu-latest
 
     steps:
@@ -272,39 +329,34 @@ jobs:
       - name: x86_64-windows-gnu, from macos-15 and windows-latest
         run: >
           scripts/ci-compare-sums.sh x86_64-windows-gnu
-          "macos-15=${{ needs.reproducible-build.outputs.win_x86_64 }}"
+          "macos-15=${{ needs.macos-test.outputs.win_x86_64 }}"
           "windows-latest=${{ needs.windows-test.outputs.sum }}"
 
       - name: aarch64-windows-gnu, from macos-15 and windows-11-arm
         run: >
           scripts/ci-compare-sums.sh aarch64-windows-gnu
-          "macos-15=${{ needs.reproducible-build.outputs.win_arm64 }}"
+          "macos-15=${{ needs.macos-test.outputs.win_arm64 }}"
           "windows-11-arm=${{ needs.windows-arm-test.outputs.sum }}"
 
       - name: x86_64-linux-musl, from macos-15 and ubuntu-latest
         run: >
           scripts/ci-compare-sums.sh x86_64-linux-musl
-          "macos-15=${{ needs.reproducible-build.outputs.linux_x86_64 }}"
+          "macos-15=${{ needs.macos-test.outputs.linux_x86_64 }}"
           "ubuntu-latest=${{ needs.linux-test.outputs.sum }}"
 
       - name: aarch64-linux-musl, from macos-15 and ubuntu-24.04-arm
         run: >
           scripts/ci-compare-sums.sh aarch64-linux-musl
-          "macos-15=${{ needs.reproducible-build.outputs.linux_arm64 }}"
+          "macos-15=${{ needs.macos-test.outputs.linux_arm64 }}"
           "ubuntu-24.04-arm=${{ needs.linux-arm-test.outputs.sum }}"
 
-  reproducible-build:
-    # Packages the release artifacts twice from a clean state and diffs
-    # them. This catches a regression in build.zig's strip, bundle.sh's
-    # -gnone, or the tar/ditto flags in scripts/release-package.sh. Each
-    # of those exists to keep this build byte-for-byte reproducible.
+  macos-reproducible:
+    # Builds the release artifacts on a second runner and compares the
+    # archive hashes against macos-test. This catches non-determinism in
+    # build.zig's strip, bundle.sh's -gnone, or the tar/ditto flags in
+    # scripts/release-package.sh.
+    needs: [macos-test]
     runs-on: macos-15
-
-    outputs:
-      win_x86_64: ${{ steps.sums.outputs.win_x86_64 }}
-      win_arm64: ${{ steps.sums.outputs.win_arm64 }}
-      linux_x86_64: ${{ steps.sums.outputs.linux_x86_64 }}
-      linux_arm64: ${{ steps.sums.outputs.linux_arm64 }}
 
     steps:
       - uses: actions/checkout@v7
@@ -324,71 +376,24 @@ jobs:
           tar -xf zig.tar.xz -C zig
           rm zig.tar.xz
 
-      - name: Package once
-        run: ./scripts/release-package.sh 0.0.0-repro-check dist1
-
-      # The binaries the packaging step above put in the archives.
-      # compare-sums reads these through this job's outputs, and the clean
-      # below deletes the prefixes that hold them.
-      - name: Record each cross-compiled binary's sum
-        id: sums
-        run: |
-          for pair in "win-x86_64 Keywise.exe" "win-arm64 Keywise.exe" \
-                      "linux-x86_64 keywise" "linux-arm64 keywise"; do
-            set -- $pair
-            sum=$(shasum -a 256 "out-$1/bin/$2" | cut -d' ' -f1)
-            echo "sha256 $sum  $1  built on macOS ARM64"
-            echo "- \`$1\` built on \`macOS ARM64\`, the host that builds a release: \`$sum\`" \
-              >> "$GITHUB_STEP_SUMMARY"
-            echo "$(echo "$1" | tr - _)=$sum" >> "$GITHUB_OUTPUT"
-          done
-          echo "tar_hash=$(shasum -a 256 dist1/keywise-aarch64-macos.tar.gz | cut -d' ' -f1)" > archive-hashes.env
-          echo "app_hash=$(shasum -a 256 dist1/Keywise-*-macos.zip | cut -d' ' -f1)" >> archive-hashes.env
-          echo "win_x64=$(shasum -a 256 dist1/Keywise-*-windows-x86_64.zip | cut -d' ' -f1)" >> archive-hashes.env
-          echo "win_arm=$(shasum -a 256 dist1/Keywise-*-windows-arm64.zip | cut -d' ' -f1)" >> archive-hashes.env
-
-      - name: Clean every build artifact
-        # release-package.sh gives each cross build its own cache and prefix.
-        run: rm -rf .zig-cache zig-out macos/.build .zig-cache-* out-*
-
-      - name: Package again
-        run: ./scripts/release-package.sh 0.0.0-repro-check dist2
-
-      - name: Compare
-        run: |
-          echo "--- run 1 ---"
-          (cd dist1 && shasum -a 256 * | sort)
-          echo "--- run 2 ---"
-          (cd dist2 && shasum -a 256 * | sort)
-          diff <(cd dist1 && shasum -a 256 * | sort) <(cd dist2 && shasum -a 256 * | sort) \
-            && echo "reproducible: both packaging runs match byte for byte"
-
-      - name: Record port hashes
-        run: |
-          version=$(sed -n 's/^ *\.version = "\([^"]*\)".*/\1/p' build.zig.zon)
-          f="keywise-${version}-source.tar.gz"
-          git archive --format=tar --prefix="keywise-${version}/" \
-              --worktree-attributes HEAD | gzip -n > "$f"
-          echo "src_sha256=$(shasum -a 256 "$f" | cut -d' ' -f1)" > src-hashes.env
-          echo "src_rmd160=$(openssl dgst -rmd160 "$f" | awk '{print $NF}')" >> src-hashes.env
-          echo "src_sha256_b64=$(openssl dgst -sha256 -binary "$f" | openssl base64 -A)" >> src-hashes.env
-          echo "src_size=$(stat -f%z "$f")" >> src-hashes.env
-
-          lv_commit=$(sed -n 's/.*#\([0-9a-f]\{40\}\)".*/\1/p' build.zig.zon)
-          f="lv-${lv_commit}.tar.gz"
-          curl -fsSL "https://github.com/rockorager/libvaxis/archive/${lv_commit}.tar.gz" -o "$f"
-          echo "lv_sha256=$(shasum -a 256 "$f" | cut -d' ' -f1)" > lv-hashes.env
-          echo "lv_rmd160=$(openssl dgst -rmd160 "$f" | awk '{print $NF}')" >> lv-hashes.env
-          echo "lv_sha256_b64=$(openssl dgst -sha256 -binary "$f" | openssl base64 -A)" >> lv-hashes.env
-          echo "lv_size=$(stat -f%z "$f")" >> lv-hashes.env
-          echo "lv_commit=$lv_commit" >> lv-hashes.env
-
-      - name: Upload release hashes
-        uses: actions/upload-artifact@v4
+      - name: Download the macos-test archive hashes
+        uses: actions/download-artifact@v4
         with:
           name: release-hashes
-          path: |
-            src-hashes.env
-            lv-hashes.env
-            archive-hashes.env
-          retention-days: 90
+          path: /tmp/ci-hashes
+
+      - name: Package once
+        run: ./scripts/release-package.sh 0.0.0-repro-check dist
+
+      - name: Compare against macos-test
+        run: |
+          echo "tar_hash=$(shasum -a 256 dist/keywise-aarch64-macos.tar.gz | cut -d' ' -f1)" > local-hashes.env
+          echo "app_hash=$(shasum -a 256 dist/Keywise-*-macos.zip | cut -d' ' -f1)" >> local-hashes.env
+          echo "win_x64=$(shasum -a 256 dist/Keywise-*-windows-x86_64.zip | cut -d' ' -f1)" >> local-hashes.env
+          echo "win_arm=$(shasum -a 256 dist/Keywise-*-windows-arm64.zip | cut -d' ' -f1)" >> local-hashes.env
+          echo "--- macos-test ---"
+          cat /tmp/ci-hashes/archive-hashes.env
+          echo "--- this runner ---"
+          cat local-hashes.env
+          diff /tmp/ci-hashes/archive-hashes.env local-hashes.env \
+            && echo "reproducible: both runners match byte for byte"

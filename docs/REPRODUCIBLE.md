@@ -62,7 +62,7 @@ and has no option for `LC_UUID`. Closing this needs the macOS SDK vendored
 into every build environment, as `zig-build-macos-sdk` does for Ghostty.
 
 `Formula/keywise.rb` and `Casks/keywise-app.rb` therefore carry a hash
-from `ci.yml`'s `reproducible-build` job. `release.yml` packages on a second
+from `ci.yml`'s `macos-test` job. `release.yml` packages on a second
 runner and compares both hashes with the assets it built. A mismatch exits
 before the upload.
 
@@ -71,9 +71,10 @@ runner's 15.7.7 and across three runs from clean at -03, +09 and +12:45.
 
 ## What CI asserts
 
-`reproducible-build` packages twice from clean on `macos-15` and diffs every
-artifact. Each build job writes its binary's SHA-256 to the run summary and
-publishes it as a job output. `compare-sums` waits for all of them and runs
+`macos-reproducible` builds once on a second runner and diffs the archive
+hashes against `macos-test`. Each build job writes its binary's SHA-256 to
+the run summary and publishes it as a job output. `compare-sums` waits for
+all of them and runs
 `ci-compare-sums.sh` once per target. An empty sum fails that job, since two
 missing values compare equal.
 
