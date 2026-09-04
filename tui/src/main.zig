@@ -619,14 +619,10 @@ const Model = struct {
                         return;
                     }
                     if (key.matches(vaxis.Key.down, .{})) {
-                        self.hideRevealed();
-                        self.model.pending_account_action = null;
                         self.list_view.nextItem(ctx);
                         return;
                     }
                     if (key.matches(vaxis.Key.up, .{})) {
-                        self.hideRevealed();
-                        self.model.pending_account_action = null;
                         self.list_view.prevItem(ctx);
                         return;
                     }
