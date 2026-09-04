@@ -299,17 +299,22 @@ const Model = struct {
     }
 
     fn setBrowserStatus(self: *Model) void {
-        const t = self.model.tombstonesSkipped();
-        if (t > 0) {
-            self.setStatus(
-                "{d} logins ({d} deleted logins skipped) -- / search, enter reveal, y copy, q quit",
-                .{ self.model.entryCount(), t },
-            );
-        } else {
-            self.setStatus(
-                "{d} logins -- / search, enter reveal, y copy, q quit",
-                .{self.model.entryCount()},
-            );
+        switch (self.mode) {
+            .search => self.setStatus("search -- esc leave, enter reveal, up/down navigate", .{}),
+            .normal => {
+                const t = self.model.tombstonesSkipped();
+                if (t > 0) {
+                    self.setStatus(
+                        "{d} logins ({d} deleted logins skipped) -- / search, enter reveal, y copy, q quit",
+                        .{ self.model.entryCount(), t },
+                    );
+                } else {
+                    self.setStatus(
+                        "{d} logins -- / search, enter reveal, y copy, q quit",
+                        .{self.model.entryCount()},
+                    );
+                }
+            },
         }
     }
 
@@ -655,7 +660,7 @@ const Model = struct {
                 if (key.matches('/', .{})) {
                     self.model.pending_account_action = null;
                     self.mode = .search;
-                    self.setStatus("search -- esc leave, enter reveal, up/down navigate", .{});
+                    self.setBrowserStatus();
                     try ctx.requestFocus(self.search_field.widget());
                     return ctx.consumeAndRedraw();
                 }
