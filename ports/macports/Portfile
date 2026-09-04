@@ -11,7 +11,7 @@ distname            keywise-${version}-source
 worksrcdir          keywise-${version}
 categories          security
 license             MIT
-maintainers         {institutoprojetodevida.org:paul @lkraider} openmaintainer
+maintainers         {gmail.com:lkraider+ports @lkraider} openmaintainer
 description         Terminal UI to view Firefox saved logins
 long_description    Keywise reads a local Firefox profile's saved logins \
                     and displays them in an interactive terminal UI.

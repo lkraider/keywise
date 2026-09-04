@@ -2,7 +2,7 @@ PORTNAME=	keywise
 DISTVERSION=	2.4.0
 CATEGORIES=	security
 
-MAINTAINER=	paul@institutoprojetodevida.org
+MAINTAINER=	lkraider+ports@gmail.com
 COMMENT=	Terminal UI to view a local Firefox profile's saved logins
 WWW=		https://github.com/lkraider/keywise
 
