@@ -15,7 +15,10 @@ jobs:
   release:
     runs-on: macos-15
     steps:
+      # HEAD~1 locates the CI commit. Default fetch-depth is 1.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
 
       - name: Check the tag against every file that holds the version
         run: ./scripts/release-set-version.sh --check "${GITHUB_REF_NAME#v}"
