@@ -618,6 +618,18 @@ const Model = struct {
                         self.revealSelected(ctx);
                         return;
                     }
+                    if (key.matches(vaxis.Key.down, .{})) {
+                        self.hideRevealed();
+                        self.model.pending_account_action = null;
+                        self.list_view.nextItem(ctx);
+                        return;
+                    }
+                    if (key.matches(vaxis.Key.up, .{})) {
+                        self.hideRevealed();
+                        self.model.pending_account_action = null;
+                        self.list_view.prevItem(ctx);
+                        return;
+                    }
                     const count = self.model.rowCount();
                     if (count > 0) {
                         var jump: ?usize = null;
@@ -625,10 +637,6 @@ const Model = struct {
                             jump = @min(self.list_view.cursor + self.viewport_rows, count -| 1);
                         } else if (key.matches(vaxis.Key.page_up, .{})) {
                             jump = self.list_view.cursor -| self.viewport_rows;
-                        } else if (key.matches(vaxis.Key.down, .{})) {
-                            jump = @min(self.list_view.cursor + 1, count -| 1);
-                        } else if (key.matches(vaxis.Key.up, .{})) {
-                            jump = self.list_view.cursor -| 1;
                         }
                         if (jump) |target| {
                             self.hideRevealed();
