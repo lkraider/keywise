@@ -3,9 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
-    # If branch protection with required checks is added, move this
-    # filtering to job-level if: conditions. A workflow skipped by
-    # paths-ignore never reports a status, which blocks required checks.
+    # A skipped workflow reports no status and blocks required checks.
+    # Use job-level if: instead.
     paths-ignore:
       - 'Formula/**'
       - 'Casks/**'
@@ -25,10 +24,8 @@ env:
 
 jobs:
   macos-test:
-    # The oracle test in core/test/oracle.zig links libsqlite3 through the
-    # macOS SDK stub, and the macOS app needs Swift. Package.swift's
-    # swift-tools-version asks for Swift 6. macos-15's default Xcode ships
-    # Swift 6. macos-14's default Xcode ships Swift 5.10.
+    # The oracle needs the macOS SDK. The app needs Swift 6 from
+    # macos-15's Xcode.
     runs-on: macos-15
 
     outputs:
@@ -55,7 +52,6 @@ jobs:
           tar -xf zig.tar.xz -C zig
           rm zig.tar.xz
 
-      # Debug here; windows-test runs the same suite at ReleaseSafe.
       - name: test-check
         run: ZIG=./zig/zig-aarch64-macos-${ZIG_VERSION}/zig ./scripts/test-check.sh smoke
 
@@ -71,8 +67,6 @@ jobs:
           version=$(sed -n 's/^ *\.version = "\([^"]*\)".*/\1/p' build.zig.zon)
           ./scripts/release-package.sh "$version" dist
 
-      # The binaries release-package.sh cross-compiled. compare-sums reads
-      # these through this job's outputs.
       - name: Record each cross-compiled binary's sum
         id: sums
         run: |
@@ -122,9 +116,7 @@ jobs:
 
 
   windows-test:
-    # Runs the core tests and builds the app on the platform it ships for.
-    # -Doracle=false drops the differential test, since a Windows runner has
-    # no sqlite3 development install.
+    # No sqlite3 headers on Windows, so the oracle test skips itself.
     runs-on: windows-latest
 
     outputs:
@@ -149,14 +141,7 @@ jobs:
           Expand-Archive -Path zig.zip -DestinationPath zig
           Remove-Item zig.zip
 
-      # Three zig processes at once: two builds of the exe and the test suite.
-      #
-      # The tests run at ReleaseSafe. scripts/release-package.sh builds the
-      # released exe with that mode. Measured on Zig 0.16.0: it fills
-      # undefined memory with
-      # 0xAA, as Debug does, and keeps the bounds, overflow and alignment
-      # checks. It also runs the optimizer, so this step tests the code
-      # generation of a released exe. macos-test runs the suite in Debug.
+      # Tests run at ReleaseSafe to match the released exe.
       - name: Test and build the app twice, in parallel
         id: build
         shell: pwsh
@@ -170,15 +155,9 @@ jobs:
         run: .\scripts\win-launch-check.ps1
 
   windows-arm-test:
-    # Runs the arm64 exe the release ships. No x86_64 host can load an ARM64
-    # PE, and windows-latest above is x86_64.
-    #
-    # This job drives the x86_64 toolchain under Windows-on-ARM emulation and
-    # cross-compiles, the way scripts/release-package.sh cross-compiles from
-    # macOS. Zig 0.16.0's own aarch64-windows build answers `zig version` and
-    # `zig env`, then dies on `zig build` with exit -1073741819, an access
-    # violation, and prints nothing. `zig build test` therefore runs on
-    # windows-latest and on macos-15, and this job builds and launches.
+    # The native aarch64-windows Zig compiler crashes on `zig build`.
+    # This uses x86_64 Zig under WoA emulation to cross-compile, then
+    # launches the arm64 exe on native hardware.
     runs-on: windows-11-arm
 
     outputs:
@@ -187,7 +166,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # The same cache entry windows-test fills. One download serves both.
       - name: Cache the pinned Zig toolchain
         id: zig-cache
         uses: actions/cache@v6
@@ -204,8 +182,7 @@ jobs:
           Expand-Archive -Path zig.zip -DestinationPath zig
           Remove-Item zig.zip
 
-      # One build. The emulated compiler took 192 seconds for it, and
-      # windows-test above already builds twice against the same toolchain.
+      # One build: the emulated compiler is slow.
       - name: Cross-compile the arm64 app and record its sum
         id: build
         shell: pwsh
@@ -219,9 +196,7 @@ jobs:
         run: .\scripts\win-launch-check.ps1
 
   linux-test:
-    # The first native run of the suite on Linux. build.zig reads
-    # host_has_sqlite from builtin.os.tag == .macos, so the oracle skips itself
-    # and this runner installs no libsqlite3 headers.
+    # The oracle gates on builtin.os.tag == .macos, so it skips here.
     runs-on: ubuntu-latest
 
     outputs:
@@ -269,8 +244,7 @@ jobs:
         run: python3 scripts/linux-tui-check.py zig-out/bin/keywise
 
   linux-arm-test:
-    # Runs the aarch64 binary a release ships. ubuntu-24.04-arm is free for a
-    # public repository. There is no ubuntu-latest-arm alias.
+    # There is no ubuntu-latest-arm alias.
     runs-on: ubuntu-24.04-arm
 
     outputs:
@@ -316,10 +290,7 @@ jobs:
         run: python3 scripts/linux-tui-check.py zig-out/bin/keywise
 
   compare-sums:
-    # Asserts that every build host produced the same exe. macos-test,
-    # windows-test and windows-arm-test each publish one sum per target they
-    # build, and `needs` holds this job until all have finished. Nothing
-    # here builds, so the runner that starts fastest runs it.
+    # Fails if a native build differs from the macOS cross-compilation.
     needs: [macos-test, windows-test, windows-arm-test, linux-test, linux-arm-test]
     runs-on: ubuntu-latest
 
@@ -351,10 +322,7 @@ jobs:
           "ubuntu-24.04-arm=${{ needs.linux-arm-test.outputs.sum }}"
 
   macos-reproducible:
-    # Builds the release artifacts on a second runner and compares the
-    # archive hashes against macos-test. This catches non-determinism in
-    # build.zig's strip, bundle.sh's -gnone, or the tar/ditto flags in
-    # scripts/release-package.sh.
+    # A second build must match macos-test byte for byte.
     needs: [macos-test]
     runs-on: macos-15
 

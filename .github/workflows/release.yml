@@ -17,8 +17,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # The tag names the artifacts. macos/Info.plist holds the version the app
-      # reports. release-set-version.sh compares the tag with every such file.
       - name: Check the tag against every file that holds the version
         run: ./scripts/release-set-version.sh --check "${GITHUB_REF_NAME#v}"
 
@@ -37,11 +35,9 @@ jobs:
           tar -xf zig.tar.xz -C zig
           rm zig.tar.xz
 
-      # CI built the source tarball from the version-bump commit. That
-      # commit and the tag commit produce different git-archive bytes
-      # (the pax global header embeds the commit SHA). The CI tarball is
-      # the one whose hash sits in ports/freebsd/distinfo, so the
-      # release publishes it instead of rebuilding.
+      # git-archive's pax header embeds the commit SHA. The tag commit
+      # and CI commit produce different tarballs. The ports files carry
+      # the CI tarball's hash.
       - name: Fetch the CI source tarball
         run: |
           ci_sha=$(git rev-parse HEAD~1)
@@ -59,18 +55,7 @@ jobs:
       - name: Package the release artifacts
         run: ./scripts/release-package.sh "${GITHUB_REF_NAME#v}" dist
 
-      # LC_UUID and the code signature still follow the installed macOS SDK.
-      # This file records what the runner had, so a hash that moves between
-      # two releases can be traced to the toolchain that produced it.
-      #
-      # tar, gzip and zip decide the published archive bytes as much as the
-      # compiler does. bsdtar's default format writes an AppleDouble member
-      # for an extended attribute, and Apple gzip emits a different deflate
-      # stream than GNU gzip for one input. ditto accepts no version flag, so
-      # the macOS version above is its only record.
-      #
-      # date reads the runner's zone. TZ=UTC sits on the individual zip and
-      # ditto calls inside release-package.sh, so echo "$TZ" prints nothing.
+      # These versions trace hash changes to toolchain updates.
       - name: Record the build environment
         working-directory: dist
         run: |
@@ -90,11 +75,8 @@ jobs:
         working-directory: dist
         run: shasum -a 256 * | tee SHA256SUMS
 
-      # Formula/keywise.rb and Casks/keywise-app.rb hold a SHA-256 from a
-      # ci.yml run, committed before the tag. This job builds on a second
-      # macos-15 runner. A runner image with a newer macOS SDK writes a
-      # different LC_UUID, and the committed hash then misses these assets.
-      # A mismatch here exits before the upload, so brew reaches no release.
+      # Assets must match the hashes committed from CI. An SDK change
+      # would produce different bytes.
       - name: Check the committed hashes against these assets
         working-directory: dist
         run: |
