@@ -447,6 +447,41 @@ const Model = struct {
         ctx.consumeAndRedraw();
     }
 
+    fn handleNavigation(self: *Model, ctx: *vxfw.EventContext, key: vaxis.Key) bool {
+        // A confirmation applies to an immediately repeated action only.
+        if (!key.matches(vaxis.Key.enter, .{}) and !key.matches('y', .{}))
+            self.model.pending_account_action = null;
+
+        if (key.matches(vaxis.Key.enter, .{})) {
+            self.revealSelected(ctx);
+            return true;
+        }
+        if (key.matches(vaxis.Key.down, .{})) {
+            self.list_view.nextItem(ctx);
+            return true;
+        }
+        if (key.matches(vaxis.Key.up, .{})) {
+            self.list_view.prevItem(ctx);
+            return true;
+        }
+        const count = self.model.rowCount();
+        if (count > 0) {
+            var jump: ?usize = null;
+            if (key.matches(vaxis.Key.page_down, .{})) {
+                jump = @min(self.list_view.cursor + self.viewport_rows, count -| 1);
+            } else if (key.matches(vaxis.Key.page_up, .{})) {
+                jump = self.list_view.cursor -| self.viewport_rows;
+            }
+            if (jump) |target| {
+                self.hideRevealed();
+                self.list_view.jumpToItem(@intCast(target));
+                ctx.consumeAndRedraw();
+                return true;
+            }
+        }
+        return false;
+    }
+
     fn rebuildMatches(self: *Model, query: []const u8) !void {
         try self.model.search(query);
         self.list_view.item_count = @intCast(self.model.rowCount());
@@ -468,24 +503,17 @@ const Model = struct {
         const self: *Model = @ptrCast(@alignCast(ptr));
         switch (event) {
             .key_press => |key| {
-                if (!key.matches(vaxis.Key.enter, .{}) and !key.matches('y', .{})) {
-                    self.model.pending_account_action = null;
-                }
+                if (self.handleNavigation(ctx, key)) return;
                 const count = self.model.rowCount();
                 if (count > 0) {
                     var jump: ?usize = null;
-                    if (key.matches(vaxis.Key.page_down, .{})) {
-                        jump = @min(self.list_view.cursor + self.viewport_rows, count -| 1);
-                    } else if (key.matches(vaxis.Key.page_up, .{})) {
-                        jump = self.list_view.cursor -| self.viewport_rows;
-                    } else if (key.matches(vaxis.Key.home, .{})) {
+                    if (key.matches(vaxis.Key.home, .{})) {
                         jump = 0;
                     } else if (key.matches(vaxis.Key.end, .{})) {
                         jump = count -| 1;
                     }
                     if (jump) |target| {
                         self.hideRevealed();
-                        self.model.pending_account_action = null;
                         self.list_view.jumpToItem(@intCast(target));
                         return ctx.consumeAndRedraw();
                     }
@@ -619,11 +647,6 @@ const Model = struct {
                     .loading, .password_prompt => return,
                 }
 
-                if (key.matches(vaxis.Key.enter, .{})) {
-                    self.revealSelected(ctx);
-                    return;
-                }
-
                 if (self.mode == .search) {
                     if (key.matches(vaxis.Key.escape, .{})) {
                         self.mode = .normal;
@@ -631,45 +654,19 @@ const Model = struct {
                         try ctx.requestFocus(self.listWidget());
                         return ctx.consumeAndRedraw();
                     }
-                    if (key.matches(vaxis.Key.down, .{})) {
-                        self.model.pending_account_action = null;
-                        self.list_view.nextItem(ctx);
-                        return;
-                    }
-                    if (key.matches(vaxis.Key.up, .{})) {
-                        self.model.pending_account_action = null;
-                        self.list_view.prevItem(ctx);
-                        return;
-                    }
-                    const count = self.model.rowCount();
-                    if (count > 0) {
-                        var jump: ?usize = null;
-                        if (key.matches(vaxis.Key.page_down, .{})) {
-                            jump = @min(self.list_view.cursor + self.viewport_rows, count -| 1);
-                        } else if (key.matches(vaxis.Key.page_up, .{})) {
-                            jump = self.list_view.cursor -| self.viewport_rows;
-                        }
-                        if (jump) |target| {
-                            self.hideRevealed();
-                            self.model.pending_account_action = null;
-                            self.list_view.jumpToItem(@intCast(target));
-                            return ctx.consumeAndRedraw();
-                        }
-                    }
+                    _ = self.handleNavigation(ctx, key);
                     return;
                 }
 
                 // .normal mode: the list wrapper holds focus, so plain letters
                 // are free to use as shortcuts.
                 if (key.matches('/', .{})) {
-                    self.model.pending_account_action = null;
                     self.mode = .search;
                     self.setBrowserStatus();
                     try ctx.requestFocus(self.search_field.widget());
                     return ctx.consumeAndRedraw();
                 }
                 if (key.matches('q', .{})) {
-                    self.model.pending_account_action = null;
                     ctx.quit = true;
                     return;
                 }
@@ -677,9 +674,6 @@ const Model = struct {
                     self.copySelected();
                     return ctx.consumeAndRedraw();
                 }
-                // A confirmation applies only to an immediately repeated
-                // action. Navigation or any unrelated key cancels it.
-                self.model.pending_account_action = null;
             },
             else => {},
         }
