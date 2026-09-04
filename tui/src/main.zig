@@ -430,9 +430,11 @@ const Model = struct {
                     }
                 }
                 self.safeRefreshRow(self.model.revealed_index.?);
+                self.setBrowserStatus();
             },
             .hidden => {
                 if (prev_revealed) |prev| self.safeRefreshRow(prev);
+                self.setBrowserStatus();
             },
             .needs_confirmation => {
                 self.setStatus(
