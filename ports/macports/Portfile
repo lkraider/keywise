@@ -22,13 +22,13 @@ master_sites-append https://github.com/rockorager/libvaxis/archive/:lv
 distfiles-append    ${lv_commit}.tar.gz:lv
 
 checksums           ${distname}${extract.suffix} \
-                    rmd160  0000000000000000000000000000000000000000 \
-                    sha256  0000000000000000000000000000000000000000000000000000000000000000 \
-                    size    0 \
+                    rmd160  f4e044c4c6566b3af24d07a2e69ef2eba4619f6b \
+                    sha256  37137b76fca35f2080625b73d0815fb4165d8b15430e4e2454109cadd647cb2b \
+                    size    1358853 \
                     ${lv_commit}.tar.gz \
-                    rmd160  0000000000000000000000000000000000000000 \
-                    sha256  0000000000000000000000000000000000000000000000000000000000000000 \
-                    size    0
+                    rmd160  5f52e9c33e778fbc449f53adf3776a878f48d1ed \
+                    sha256  a6059a94facbcc8a44c2fb37f3dfde9b0dfd26c173ccf8bc57f337f8fc9f97e8 \
+                    size    1223487
 
 depends_build-append port:zig
 

@@ -6,7 +6,7 @@
     "architecture": {
         "64bit": {
             "url": "https://github.com/lkraider/keywise/releases/download/v2.4.0/Keywise-2.4.0-windows-x86_64.zip",
-            "hash": "d95828d1b294694c3565653f501f2a1e2860f2356cc1a8411a28f794b139c6fb"
+            "hash": "7027a969d4625a0e661ea08aa5e0a1fc51d5dacf5e6212879bb17a85c9a635aa"
         },
         "arm64": {
             "url": "https://github.com/lkraider/keywise/releases/download/v2.4.0/Keywise-2.4.0-windows-arm64.zip",
