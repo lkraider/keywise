@@ -608,15 +608,16 @@ const Model = struct {
                     .loading, .password_prompt => return,
                 }
 
+                if (key.matches(vaxis.Key.enter, .{})) {
+                    self.revealSelected(ctx);
+                    return;
+                }
+
                 if (self.mode == .search) {
                     if (key.matches(vaxis.Key.escape, .{})) {
                         self.mode = .normal;
                         try ctx.requestFocus(self.listWidget());
                         return ctx.consumeAndRedraw();
-                    }
-                    if (key.matches(vaxis.Key.enter, .{})) {
-                        self.revealSelected(ctx);
-                        return;
                     }
                     if (key.matches(vaxis.Key.down, .{})) {
                         self.list_view.nextItem(ctx);
@@ -655,10 +656,6 @@ const Model = struct {
                 if (key.matches('q', .{})) {
                     self.model.pending_account_action = null;
                     ctx.quit = true;
-                    return;
-                }
-                if (key.matches(vaxis.Key.enter, .{})) {
-                    self.revealSelected(ctx);
                     return;
                 }
                 if (key.matches('y', .{})) {
