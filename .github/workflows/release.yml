@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 env:
   ZIG_VERSION: "0.16.0"
@@ -35,6 +36,25 @@ jobs:
           curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-aarch64-macos-${ZIG_VERSION}.tar.xz" -o zig.tar.xz
           tar -xf zig.tar.xz -C zig
           rm zig.tar.xz
+
+      # CI built the source tarball from the version-bump commit. That
+      # commit and the tag commit produce different git-archive bytes
+      # (the pax global header embeds the commit SHA). The CI tarball is
+      # the one whose hash sits in ports/freebsd/distinfo, so the
+      # release publishes it instead of rebuilding.
+      - name: Fetch the CI source tarball
+        run: |
+          ci_sha=$(git rev-parse HEAD~1)
+          run_id=$(gh run list --workflow ci.yml --commit "$ci_sha" \
+              --limit 1 --json databaseId,conclusion \
+              --jq '[.[] | select(.conclusion == "success")][0].databaseId')
+          [ -n "$run_id" ] || { echo "no successful CI run for $ci_sha" >&2; exit 1; }
+          gh run download "$run_id" -n release-hashes -D /tmp/ci-hashes
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          cp "/tmp/ci-hashes/keywise-${version}-source.tar.gz" dist/
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Package the release artifacts
         run: ./scripts/release-package.sh "${GITHUB_REF_NAME#v}" dist

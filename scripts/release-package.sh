@@ -3,7 +3,7 @@
 # and the Windows app for both architectures.
 #
 # release.yml runs this to build what a release publishes. ci.yml's
-# reproducible-build job runs it twice and diffs the output. Every setting
+# macos-reproducible job builds once and diffs against macos-test. Every setting
 # below that exists to keep the bytes stable is explained in
 # docs/REPRODUCIBLE.md.
 #
@@ -84,5 +84,8 @@ for pair in "linux-x86_64 x86_64" "linux-arm64 aarch64"; do
         | gzip -n -9 > "$out/keywise-$2-linux.tar.gz"
 done
 
-git archive --format=tar --prefix="keywise-${version}/" \
-    --worktree-attributes HEAD | gzip -n > "$out/keywise-${version}-source.tar.gz"
+src="$out/keywise-${version}-source.tar.gz"
+if [ ! -f "$src" ]; then
+    git archive --format=tar --prefix="keywise-${version}/" \
+        --worktree-attributes HEAD | gzip -n > "$src"
+fi
