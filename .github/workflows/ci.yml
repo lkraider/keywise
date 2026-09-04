@@ -110,7 +110,7 @@ jobs:
           echo "lv_commit=$lv_commit" >> lv-hashes.env
 
       - name: Upload release hashes
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-hashes
           path: |
@@ -377,7 +377,7 @@ jobs:
           rm zig.tar.xz
 
       - name: Download the macos-test archive hashes
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: release-hashes
           path: /tmp/ci-hashes
