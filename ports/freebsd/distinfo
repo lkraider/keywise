@@ -1,5 +1,5 @@
-TIMESTAMP = 1788541594
-SHA256 (zig/keywise-2.4.0-source.tar.gz) = 37137b76fca35f2080625b73d0815fb4165d8b15430e4e2454109cadd647cb2b
-SIZE (zig/keywise-2.4.0-source.tar.gz) = 1358853
+TIMESTAMP = 1788550258
+SHA256 (zig/keywise-2.4.0-source.tar.gz) = f469e8101089184347fa2a11d3ca3eb692841e5d5d52f0d255484e535d9cf97f
+SIZE (zig/keywise-2.4.0-source.tar.gz) = 548786
 SHA256 (zig/6cab03f8a3faeb58bddf334343889a7f685ba7a7.tar.gz) = a6059a94facbcc8a44c2fb37f3dfde9b0dfd26c173ccf8bc57f337f8fc9f97e8
 SIZE (zig/6cab03f8a3faeb58bddf334343889a7f685ba7a7.tar.gz) = 1223487
