@@ -36,7 +36,8 @@ pub const usage =
     \\  keywise --help              print this text
     \\
     \\Keys:
-    \\  /            search, enter or escape leaves the field
+    \\  /            search. up/down navigate results while typing
+    \\  esc          leave search
     \\  up down k j  move through the list
     \\  PgDn PgUp    jump one screenful
     \\  Home End     jump to first / last

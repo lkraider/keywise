@@ -315,12 +315,12 @@ const Model = struct {
                 const t = self.model.tombstonesSkipped();
                 if (t > 0) {
                     self.setStatus(
-                        "{d} logins ({d} deleted logins skipped) -- / search, enter reveal, y copy, q quit",
+                        "{d} logins ({d} deleted logins skipped) -- / search, esc leave search, enter reveal, y copy, q quit",
                         .{ self.model.entryCount(), t },
                     );
                 } else {
                     self.setStatus(
-                        "{d} logins -- / search, enter reveal, y copy, q quit",
+                        "{d} logins -- / search, esc leave search, enter reveal, y copy, q quit",
                         .{self.model.entryCount()},
                     );
                 }
