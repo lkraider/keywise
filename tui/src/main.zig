@@ -632,10 +632,12 @@ const Model = struct {
                         return ctx.consumeAndRedraw();
                     }
                     if (key.matches(vaxis.Key.down, .{})) {
+                        self.model.pending_account_action = null;
                         self.list_view.nextItem(ctx);
                         return;
                     }
                     if (key.matches(vaxis.Key.up, .{})) {
+                        self.model.pending_account_action = null;
                         self.list_view.prevItem(ctx);
                         return;
                     }
