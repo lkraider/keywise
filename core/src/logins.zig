@@ -4,6 +4,8 @@ const std = @import("std");
 const sdr = @import("sdr.zig");
 const keydb = @import("keydb.zig");
 
+pub const max_field_len: usize = 1024;
+
 pub const Error = error{ NoLoginsArray, MalformedJson } || std.mem.Allocator.Error;
 pub const RevealError = error{ LegacyTripleDes, NoSdrKey, TooLarge } || std.base64.Error || sdr.Error;
 
@@ -93,11 +95,9 @@ pub fn scan(gpa: std.mem.Allocator, json_bytes: []const u8, keys: *const keydb.K
 
     var result: ScanResult = .{ .entries = &.{} };
 
-    const scratch = try gpa.alloc(u8, 8192);
-    defer gpa.free(scratch);
-    const plain = try gpa.alloc(u8, 8192);
-    defer gpa.free(plain);
-    defer std.crypto.secureZero(u8, plain);
+    var scratch: [max_field_len]u8 = undefined;
+    var plain: [max_field_len]u8 = undefined;
+    defer std.crypto.secureZero(u8, &plain);
 
     for (logins.items) |item| {
         const obj = switch (item) {
@@ -147,11 +147,11 @@ pub fn scan(gpa: std.mem.Allocator, json_bytes: []const u8, keys: *const keydb.K
 
         var username: []const u8 = &.{};
         var legacy_3des = false;
-        if (decryptField(encrypted_username, keys, scratch, plain)) |dec| {
+        if (decryptField(encrypted_username, keys, &scratch, &plain)) |dec| {
             username = try gpa.dupe(u8, dec);
-            std.crypto.secureZero(u8, plain);
+            std.crypto.secureZero(u8, &plain);
         } else |err| {
-            std.crypto.secureZero(u8, plain);
+            std.crypto.secureZero(u8, &plain);
             switch (err) {
                 error.LegacyTripleDes => legacy_3des = true,
                 else => {
