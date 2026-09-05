@@ -264,10 +264,10 @@ pub fn build(b: *std.Build) void {
         ).step);
     }
 
-    // C ABI static library. It shares `target` with everything else above,
-    // so -Dtarget applies to it too. Releases ship a single aarch64-macos
-    // slice, and no lipo step runs. core.zig calls c.getenv and allocates
-    // through std.heap.c_allocator, and Swift links libc regardless.
+    // C ABI static library for the Swift macOS app. -Dtarget applies to it.
+    // x86_64 Zig code references __zig_probe_stack from compiler-rt. The
+    // default static library omits compiler-rt. bundle_compiler_rt archives
+    // it so Swift's linker resolves the symbol.
     const core_lib_mod = b.createModule(.{
         .root_source_file = b.path("core/src/core.zig"),
         .target = target,
@@ -282,6 +282,7 @@ pub fn build(b: *std.Build) void {
         .root_module = core_lib_mod,
         .linkage = .static,
     });
+    core_lib.bundle_compiler_rt = true;
     core_lib.installHeader(b.path("core/include/keywise.h"), "keywise.h");
     b.installArtifact(core_lib);
 
