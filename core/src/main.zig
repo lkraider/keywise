@@ -23,7 +23,7 @@ pub fn main() !void {
 
     const cwd = std.Io.Dir.cwd();
     const ini_path = try std.fs.path.join(gpa, &.{ firefox_dir, "profiles.ini" });
-    const ini = try cwd.readFileAlloc(io, ini_path, gpa, .unlimited);
+    const ini = try cwd.readFileAlloc(io, ini_path, gpa, .limited(1024 * 1024));
 
     const all_profiles = try profiles.enumerate(gpa, firefox_dir, ini);
     std.debug.print("profiles:  {d} found\n", .{all_profiles.len});

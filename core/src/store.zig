@@ -38,7 +38,7 @@ pub const Store = struct {
 
         const cwd = std.Io.Dir.cwd();
         const logins_path = try std.fmt.allocPrint(gpa, "{s}/logins.json", .{profile_path});
-        const json = cwd.readFileAlloc(io, logins_path, gpa, .unlimited) catch |e| switch (e) {
+        const json = cwd.readFileAlloc(io, logins_path, gpa, .limited(64 * 1024 * 1024)) catch |e| switch (e) {
             error.OutOfMemory => return error.OutOfMemory,
             error.FileNotFound => return .{
                 .arena = arena_state,
