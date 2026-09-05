@@ -2,6 +2,30 @@
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- macOS binaries are universal (fat) Mach-O. The TUI tarball and the
+  `.app` zip each contain both x86_64 and arm64 slices. Intel Macs no
+  longer need Rosetta.
+- The release pipeline cross-compiles x86_64-macos alongside
+  aarch64-macos, then merges the two with `lipo`. The macOS tarball is
+  now `keywise-macos.tar.gz`.
+- `bundle.sh` gains a `KEYWISE_UNIVERSAL` code path that builds the
+  Swift app with two `swift build --triple` invocations and merges them
+  with `lipo`.
+
+### Changed
+
+- `build.zig` sets `bundle_compiler_rt = true` on the static library.
+  x86_64 Zig code emits `__zig_probe_stack` calls for stack frames
+  larger than one page. Apple's `libclang_rt.osx.a` does not carry that
+  symbol. Bundling Zig's compiler-rt into `libkeywise.a` lets Swift's
+  linker resolve it.
+- The Homebrew Formula and Cask no longer declare `depends_on arch:
+  :arm64`.
+
 ## [2.4.0] - 2026-09-02
 
 ### Fixed
