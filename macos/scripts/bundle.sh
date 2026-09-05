@@ -14,24 +14,41 @@ config="${1:-release}"
 cd "$(dirname "$0")/.."
 repo_root="$(cd .. && pwd)"
 
-if [ "$config" = "release" ]; then
-    zig_optimize=ReleaseSafe
-else
-    zig_optimize=Debug
+if [ -z "${KEYWISE_UNIVERSAL:-}" ]; then
+    if [ "$config" = "release" ]; then
+        zig_optimize=ReleaseSafe
+    else
+        zig_optimize=Debug
+    fi
+    (cd "$repo_root" && ./zig/zig-aarch64-macos-0.16.0/zig build -Doptimize="$zig_optimize")
 fi
-(cd "$repo_root" && ./zig/zig-aarch64-macos-0.16.0/zig build -Doptimize="$zig_optimize")
 
 # swiftc/ld embeds something debug-info-derived into the binary that
 # varies build to build, the same class of issue -fstrip fixes on the
 # Zig side. -gnone strips that. Verified: two clean rebuilds of
 # identical source are byte-identical, even after the ad-hoc codesign
 # below.
-swift build -c "$config" -Xswiftc -gnone
+#
+# KEYWISE_UNIVERSAL builds both architectures with --triple, then merges
+# them with lipo. --triple preserves -Xswiftc flags. Dual --arch does not.
+if [ -n "${KEYWISE_UNIVERSAL:-}" ]; then
+    swift build -c "$config" -Xswiftc -gnone --triple arm64-apple-macosx
+    swift build -c "$config" -Xswiftc -gnone --triple x86_64-apple-macosx
+    mkdir -p .build/universal
+    lipo -create \
+        ".build/arm64-apple-macosx/$config/Keywise" \
+        ".build/x86_64-apple-macosx/$config/Keywise" \
+        -output ".build/universal/Keywise"
+    build_dir=".build/universal"
+else
+    swift build -c "$config" -Xswiftc -gnone
+    build_dir=".build/$config"
+fi
 
 app=".build/$config/Keywise.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp ".build/$config/Keywise" "$app/Contents/MacOS/Keywise"
+cp "$build_dir/Keywise" "$app/Contents/MacOS/Keywise"
 cp "Info.plist" "$app/Contents/Info.plist"
 # Info.plist's CFBundleIconFile names this file. scripts/make-icon.swift
 # draws it, and the committed .icns is what a build copies.
