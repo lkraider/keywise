@@ -97,7 +97,7 @@ const cli = @import("args.zig");
 const tui_model = @import("model.zig");
 const build_options = @import("build_options");
 
-const secret_buffer_len = 8192;
+const secret_buffer_len = core.logins.max_field_len;
 
 /// A password prompt with its own tiny buffer. Its application-owned copy of
 /// the Primary Password is wiped explicitly instead of being left to a generic
@@ -843,7 +843,7 @@ fn copyViaHelper(io: std.Io, helpers: []const []const []const u8, text: []const 
 fn readProfilesIni(io: std.Io, gpa: std.mem.Allocator, firefox_dir: []const u8) ![]u8 {
     const ini_path = try std.fs.path.join(gpa, &.{ firefox_dir, "profiles.ini" });
     defer gpa.free(ini_path);
-    return std.Io.Dir.cwd().readFileAlloc(io, ini_path, gpa, .unlimited);
+    return std.Io.Dir.cwd().readFileAlloc(io, ini_path, gpa, .limited(1024 * 1024));
 }
 
 fn resolveDefaultProfile(io: std.Io, gpa: std.mem.Allocator, firefox_dir: []const u8) ![]u8 {

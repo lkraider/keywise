@@ -39,7 +39,7 @@ const secret_timeout_ms: w.UINT = 30_000;
 const search_max = 256;
 /// logins.json holds the password as an SDR blob, and store.reveal decrypts
 /// into a buffer this size in every front end.
-const secret_max = 8192;
+const secret_max = core.logins.max_field_len;
 
 const App = struct {
     gpa: std.mem.Allocator,
@@ -200,7 +200,7 @@ fn readProfiles(gpa: std.mem.Allocator, io: std.Io, appdata: []const u8) ![]core
     const ini_path = try std.fs.path.join(gpa, &.{ firefox_dir, "profiles.ini" });
     defer gpa.free(ini_path);
 
-    const ini = try std.Io.Dir.cwd().readFileAlloc(io, ini_path, gpa, .unlimited);
+    const ini = try std.Io.Dir.cwd().readFileAlloc(io, ini_path, gpa, .limited(1024 * 1024));
     defer gpa.free(ini);
 
     return core.profiles.enumerate(gpa, firefox_dir, ini);

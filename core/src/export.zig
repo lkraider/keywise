@@ -27,8 +27,8 @@ fn writeEntries(
     writer: *std.Io.Writer,
     comptime formatFn: *const fn (logins.Entry, []const u8, bool, []u8) ?[]const u8,
 ) WriteError!WriteResult {
-    var scratch: [8192]u8 = undefined;
-    var out: [8192]u8 = undefined;
+    var scratch: [logins.max_field_len]u8 = undefined;
+    var out: [logins.max_field_len]u8 = undefined;
     var buf: [32768]u8 = undefined;
     defer std.crypto.secureZero(u8, &scratch);
     defer std.crypto.secureZero(u8, &out);

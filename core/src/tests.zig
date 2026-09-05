@@ -8,6 +8,7 @@ const pbes2 = @import("pbes2.zig");
 const sdr = @import("sdr.zig");
 const keydb = @import("keydb.zig");
 const sqlitedb = @import("sqlitedb.zig");
+const logins = @import("logins.zig");
 const store = @import("store.zig");
 const messages = @import("messages.zig");
 
@@ -131,7 +132,6 @@ test "logins.scan marks a 3des-only entry legacy_3des" {
     // decryptField used to read keys.aes256 before parsing the blob, and
     // every entry then reported NoSdrKey. The blob names its own cipher, so
     // LegacyTripleDes is the answer that says what to do about it.
-    const logins = @import("logins.zig");
     const json =
         \\{"logins": [{
         \\  "hostname": "https://example.com",
@@ -194,7 +194,6 @@ fn readFixtureLogins(gpa: std.mem.Allocator, path: []const u8) ![]u8 {
 }
 
 test "the fresh fixture decrypts every entry with an empty Primary Password" {
-    const logins = @import("logins.zig");
     const json = try readFixtureLogins(testing.allocator, "core/testdata/fresh/logins.json");
     defer testing.allocator.free(json);
 
@@ -217,7 +216,6 @@ fn scanAllocationFailures(
     json: []const u8,
     keys: *const keydb.Keys,
 ) !void {
-    const logins = @import("logins.zig");
     const result = try logins.scan(gpa, json, keys);
     defer freeScanResult(gpa, result);
 }
@@ -235,7 +233,6 @@ test "logins.scan frees every partial allocation on failure" {
 }
 
 test "the primary fixture needs its documented Primary Password" {
-    const logins = @import("logins.zig");
     const json = try readFixtureLogins(testing.allocator, "core/testdata/primary/logins.json");
     defer testing.allocator.free(json);
 
@@ -277,7 +274,6 @@ test "two-profiles resolves to the profile the install section names" {
 test "the unmigrated fixture carries a 24-byte 3DES key and no AES-256 key" {
     // Written by Firefox 143.0.4, before Firefox 144 added the AES-256 key
     // and re-encrypted the store. Every entry here is des_ede3_cbc.
-    const logins = @import("logins.zig");
     const json = try readFixtureLogins(testing.allocator, "core/testdata/unmigrated/logins.json");
     defer testing.allocator.free(json);
 
@@ -302,7 +298,6 @@ test "the migrated fixture carries both key rows and decrypts every entry" {
     // every entry to AES-256. Picking the first nssPrivate row by insertion
     // order returns the 3DES key and fails every entry's PKCS7 check. The
     // reader sorts by decrypted length to pick between them.
-    const logins = @import("logins.zig");
     const json = try readFixtureLogins(testing.allocator, "core/testdata/migrated/logins.json");
     defer testing.allocator.free(json);
 
@@ -321,7 +316,6 @@ test "the migrated fixture carries both key rows and decrypts every entry" {
 }
 
 test "the sync-shaped fixture filters tombstones and labels the account and extension rows" {
-    const logins = @import("logins.zig");
     const json = try readFixtureLogins(testing.allocator, "core/testdata/sync-shaped/logins.json");
     defer testing.allocator.free(json);
 
@@ -373,8 +367,8 @@ test "Store.open on the sync-shaped fixture filters tombstones like logins.scan"
     try testing.expectEqual(@as(usize, 5), s.entries.len);
     try testing.expectEqual(@as(usize, 2), s.tombstones_skipped);
 
-    var scratch: [8192]u8 = undefined;
-    var out: [8192]u8 = undefined;
+    var scratch: [logins.max_field_len]u8 = undefined;
+    var out: [logins.max_field_len]u8 = undefined;
     for (s.entries, 0..) |e, i| {
         if (e.kind != .normal) continue;
         const plain = try s.reveal(i, &scratch, &out);
@@ -680,7 +674,6 @@ test "Store.open returns an empty store when logins.json is missing" {
 }
 
 test "logins.scan rejects an object value for the logins key" {
-    const logins = @import("logins.zig");
     const keys: keydb.Keys = .{};
     try testing.expectError(error.NoLoginsArray, logins.scan(testing.allocator,
         \\{"logins": {}}
@@ -688,13 +681,11 @@ test "logins.scan rejects an object value for the logins key" {
 }
 
 test "logins.scan rejects malformed JSON" {
-    const logins = @import("logins.zig");
     const keys: keydb.Keys = .{};
     try testing.expectError(error.MalformedJson, logins.scan(testing.allocator, "not json at all", &keys));
 }
 
 test "logins.scan rejects an object with no logins key" {
-    const logins = @import("logins.zig");
     const keys: keydb.Keys = .{};
     try testing.expectError(error.NoLoginsArray, logins.scan(testing.allocator,
         \\{"other": []}

@@ -90,7 +90,7 @@ fn listProfiles(io: std.Io) ![]profiles.Profile {
     const cwd = std.Io.Dir.cwd();
     const ini_path = try std.fs.path.join(gpa, &.{ firefox_dir, "profiles.ini" });
     defer gpa.free(ini_path);
-    const ini = try cwd.readFileAlloc(io, ini_path, gpa, .unlimited);
+    const ini = try cwd.readFileAlloc(io, ini_path, gpa, .limited(1024 * 1024));
     defer gpa.free(ini);
 
     return profiles.enumerate(gpa, firefox_dir, ini);
@@ -254,9 +254,9 @@ export fn keywise_reveal(handle: ?*CStore, i: u32, out: ?*?[*]u8, len: ?*usize) 
     const out_ptr = out orelse return .err_range;
     const len_ptr = len orelse return .err_range;
 
-    var scratch: [8192]u8 = undefined;
+    var scratch: [logins.max_field_len]u8 = undefined;
     defer std.crypto.secureZero(u8, &scratch);
-    var decrypted: [8192]u8 = undefined;
+    var decrypted: [logins.max_field_len]u8 = undefined;
     defer std.crypto.secureZero(u8, &decrypted);
 
     const plain = logins.revealPassword(s.entries[i], &s.keys, &scratch, &decrypted) catch |err| {

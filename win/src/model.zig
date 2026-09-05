@@ -49,10 +49,10 @@ pub const Model = struct {
 
     revealed_index: ?usize = null,
     revealed_len: usize = 0,
-    reveal_buf: [8192]u8 = undefined,
+    reveal_buf: [logins.max_field_len]u8 = undefined,
 
     copy_len: usize = 0,
-    copy_buf: [8192]u8 = undefined,
+    copy_buf: [logins.max_field_len]u8 = undefined,
 
     status_len: usize = 0,
     status_buf: [256]u8 = undefined,
@@ -193,7 +193,7 @@ pub const Model = struct {
         const s = &(self.store orelse return .failed);
         self.hideRevealed();
 
-        var scratch: [8192]u8 = undefined;
+        var scratch: [logins.max_field_len]u8 = undefined;
         defer std.crypto.secureZero(u8, &scratch);
         const plain = s.reveal(index, &scratch, &self.reveal_buf) catch |err| {
             self.hideRevealed();
@@ -218,7 +218,7 @@ pub const Model = struct {
 
         const s = &(self.store orelse return .failed);
         self.clearCopy();
-        var scratch: [8192]u8 = undefined;
+        var scratch: [logins.max_field_len]u8 = undefined;
         defer std.crypto.secureZero(u8, &scratch);
         const plain = s.reveal(index, &scratch, &self.copy_buf) catch |err| {
             self.clearCopy();
