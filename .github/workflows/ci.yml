@@ -79,7 +79,7 @@ jobs:
               >> "$GITHUB_STEP_SUMMARY"
             echo "$(echo "$1" | tr - _)=$sum" >> "$GITHUB_OUTPUT"
           done
-          echo "tar_hash=$(shasum -a 256 dist/keywise-aarch64-macos.tar.gz | cut -d' ' -f1)" > archive-hashes.env
+          echo "tar_hash=$(shasum -a 256 dist/keywise-macos.tar.gz | cut -d' ' -f1)" > archive-hashes.env
           echo "app_hash=$(shasum -a 256 dist/Keywise-*-macos.zip | cut -d' ' -f1)" >> archive-hashes.env
           echo "win_x64=$(shasum -a 256 dist/Keywise-*-windows-x86_64.zip | cut -d' ' -f1)" >> archive-hashes.env
           echo "win_arm=$(shasum -a 256 dist/Keywise-*-windows-arm64.zip | cut -d' ' -f1)" >> archive-hashes.env
@@ -355,7 +355,7 @@ jobs:
 
       - name: Compare against macos-test
         run: |
-          echo "tar_hash=$(shasum -a 256 dist/keywise-aarch64-macos.tar.gz | cut -d' ' -f1)" > local-hashes.env
+          echo "tar_hash=$(shasum -a 256 dist/keywise-macos.tar.gz | cut -d' ' -f1)" > local-hashes.env
           echo "app_hash=$(shasum -a 256 dist/Keywise-*-macos.zip | cut -d' ' -f1)" >> local-hashes.env
           echo "win_x64=$(shasum -a 256 dist/Keywise-*-windows-x86_64.zip | cut -d' ' -f1)" >> local-hashes.env
           echo "win_arm=$(shasum -a 256 dist/Keywise-*-windows-arm64.zip | cut -d' ' -f1)" >> local-hashes.env

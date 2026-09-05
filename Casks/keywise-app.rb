@@ -7,7 +7,6 @@ cask "keywise-app" do
   desc "Views a local Firefox profile's saved logins"
   homepage "https://github.com/lkraider/keywise"
 
-  depends_on arch: :arm64
   depends_on macos: :sonoma
 
   app "Keywise.app"

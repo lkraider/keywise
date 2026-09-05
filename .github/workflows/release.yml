@@ -83,7 +83,7 @@ jobs:
       - name: Check the committed hashes against these assets
         working-directory: dist
         run: |
-          tar_sum=$(awk '$2 == "keywise-aarch64-macos.tar.gz" {print $1}' SHA256SUMS)
+          tar_sum=$(awk '$2 == "keywise-macos.tar.gz" {print $1}' SHA256SUMS)
           app_sum=$(awk '$2 ~ /-macos\.zip$/ {print $1}' SHA256SUMS)
           src_sum=$(awk '$2 ~ /-source\.tar\.gz$/ {print $1}' SHA256SUMS)
           [ -n "$tar_sum" ] && [ -n "$app_sum" ] && [ -n "$src_sum" ] \
