@@ -747,3 +747,174 @@ test "a key4.db with no password-check row returns MissingPasswordRow" {
 test "a key4.db with no key row returns NoSdrKey" {
     try testing.expectError(error.NoSdrKey, loadKeys("core/testdata/no-key-row/key4.db", ""));
 }
+
+fn encryptCbc(out: []u8, pt: []const u8, key: *const [32]u8, iv: [16]u8) void {
+    const Aes256 = std.crypto.core.aes.Aes256;
+    const ctx = Aes256.initEnc(key.*);
+    var prev = iv;
+    var i: usize = 0;
+    while (i < pt.len) : (i += 16) {
+        var block: [16]u8 = undefined;
+        for (0..16) |j| block[j] = pt[i + j] ^ prev[j];
+        ctx.encrypt(&prev, &block);
+        @memcpy(out[i..][0..16], &prev);
+    }
+}
+
+fn writeDerLen(buf: []u8, len: usize) usize {
+    if (len < 128) {
+        buf[0] = @intCast(len);
+        return 1;
+    } else if (len < 256) {
+        buf[0] = 0x81;
+        buf[1] = @intCast(len);
+        return 2;
+    } else {
+        buf[0] = 0x82;
+        buf[1] = @intCast(len >> 8);
+        buf[2] = @intCast(len & 0xff);
+        return 3;
+    }
+}
+
+fn buildSdrBlob(plaintext: []const u8, key: *const [32]u8) struct { buf: [2048]u8, len: usize } {
+    const pad_val: u8 = @intCast(16 - (plaintext.len % 16));
+    const ct_len = plaintext.len + pad_val;
+    var padded: [1024]u8 = undefined;
+    @memcpy(padded[0..plaintext.len], plaintext);
+    @memset(padded[plaintext.len..][0..pad_val], pad_val);
+
+    var ct: [1024]u8 = undefined;
+    const iv = [_]u8{0} ** 16;
+    encryptCbc(ct[0..ct_len], padded[0..ct_len], key, iv);
+
+    const oid_body = &oids.aes256_cbc;
+    const oid_elem_len = 2 + oid_body.len;
+    const iv_elem_len = 2 + 16;
+    const inner_seq_body = oid_elem_len + iv_elem_len;
+
+    var buf: [2048]u8 = undefined;
+    var p: usize = 0;
+
+    const ct_hdr: usize = 1 + if (ct_len < 128) @as(usize, 1) else if (ct_len < 256) @as(usize, 2) else @as(usize, 3);
+    const outer_body = 18 + 2 + inner_seq_body + ct_hdr + ct_len;
+
+    buf[p] = 0x30;
+    p += 1;
+    p += writeDerLen(buf[p..], outer_body);
+
+    buf[p] = 0x04;
+    p += 1;
+    buf[p] = 16;
+    p += 1;
+    @memcpy(buf[p..][0..16], &sdr.sdr_key_id);
+    p += 16;
+
+    buf[p] = 0x30;
+    p += 1;
+    buf[p] = @intCast(inner_seq_body);
+    p += 1;
+    buf[p] = 0x06;
+    p += 1;
+    buf[p] = @intCast(oid_body.len);
+    p += 1;
+    @memcpy(buf[p..][0..oid_body.len], oid_body);
+    p += oid_body.len;
+    buf[p] = 0x04;
+    p += 1;
+    buf[p] = 16;
+    p += 1;
+    @memcpy(buf[p..][0..16], &iv);
+    p += 16;
+
+    buf[p] = 0x04;
+    p += 1;
+    p += writeDerLen(buf[p..], ct_len);
+    @memcpy(buf[p..][0..ct_len], ct[0..ct_len]);
+    p += ct_len;
+
+    return .{ .buf = buf, .len = p };
+}
+
+fn encodeSdrBase64(der_bytes: []const u8, out: []u8) []const u8 {
+    const encoder = std.base64.standard.Encoder;
+    return encoder.encode(out[0..encoder.calcSize(der_bytes.len)], der_bytes);
+}
+
+test "a 959-byte password round-trips through decryptField" {
+    const key = [_]u8{0} ** 32;
+    const keys: keydb.Keys = .{ .aes256 = key };
+    const plaintext = [_]u8{'A'} ** 959;
+
+    const blob = buildSdrBlob(&plaintext, &key);
+    var b64_buf: [2048]u8 = undefined;
+    const b64 = encodeSdrBase64(blob.buf[0..blob.len], &b64_buf);
+
+    var scratch: [logins.max_field_len]u8 = undefined;
+    var out: [logins.max_field_len]u8 = undefined;
+    const dec = try logins.revealPassword(.{
+        .hostname = "",
+        .username = "",
+        .kind = .normal,
+        .legacy_3des = false,
+        .encrypted_password = b64,
+        .time_password_changed = 0,
+    }, &keys, &scratch, &out);
+    try testing.expectEqual(@as(usize, 959), dec.len);
+    try testing.expect(std.mem.eql(u8, dec, &plaintext));
+}
+
+test "a 960-byte password returns TooLarge" {
+    const key = [_]u8{0} ** 32;
+    const keys: keydb.Keys = .{ .aes256 = key };
+    const plaintext = [_]u8{'A'} ** 960;
+
+    const blob = buildSdrBlob(&plaintext, &key);
+    var b64_buf: [2048]u8 = undefined;
+    const b64 = encodeSdrBase64(blob.buf[0..blob.len], &b64_buf);
+
+    var scratch: [logins.max_field_len]u8 = undefined;
+    var out: [logins.max_field_len]u8 = undefined;
+    try testing.expectError(error.TooLarge, logins.revealPassword(.{
+        .hostname = "",
+        .username = "",
+        .kind = .normal,
+        .legacy_3des = false,
+        .encrypted_password = b64,
+        .time_password_changed = 0,
+    }, &keys, &scratch, &out));
+}
+
+test "scan() decrypts a 959-byte password across 1000 arena iterations" {
+    const key = [_]u8{0} ** 32;
+    const keys: keydb.Keys = .{ .aes256 = key };
+    const password = [_]u8{'P'} ** 959;
+    const username = [_]u8{'U'} ** 8;
+
+    const pw_blob = buildSdrBlob(&password, &key);
+    var pw_b64_buf: [2048]u8 = undefined;
+    const pw_b64 = encodeSdrBase64(pw_blob.buf[0..pw_blob.len], &pw_b64_buf);
+
+    const user_blob = buildSdrBlob(&username, &key);
+    var user_b64_buf: [256]u8 = undefined;
+    const user_b64 = encodeSdrBase64(user_blob.buf[0..user_blob.len], &user_b64_buf);
+
+    var json_buf: [4096]u8 = undefined;
+    const json = std.fmt.bufPrint(&json_buf,
+        \\{{"logins": [{{"hostname": "https://example.com", "encryptedUsername": "{s}", "encryptedPassword": "{s}", "timePasswordChanged": 0}}]}}
+    , .{ user_b64, pw_b64 }) catch unreachable;
+
+    for (0..1000) |_| {
+        var arena = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const result = try logins.scan(arena.allocator(), json, &keys);
+        try testing.expectEqual(@as(usize, 1), result.entries.len);
+        try testing.expect(std.mem.eql(u8, result.entries[0].username, &username));
+
+        var scratch: [logins.max_field_len]u8 = undefined;
+        var out: [logins.max_field_len]u8 = undefined;
+        const dec = try logins.revealPassword(result.entries[0], &keys, &scratch, &out);
+        try testing.expectEqual(@as(usize, 959), dec.len);
+        try testing.expect(std.mem.eql(u8, dec, &password));
+    }
+}
