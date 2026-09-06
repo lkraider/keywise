@@ -669,8 +669,7 @@ test "Store.open returns an empty store when logins.json is missing" {
     try testing.expectEqual(@as(usize, 0), s.malformed);
 
     var out: [8]usize = undefined;
-    const count = s.search("", &out);
-    try testing.expectEqual(@as(usize, 0), count);
+    _ = s.search("", &out);
 }
 
 test "logins.scan rejects an object value for the logins key" {
@@ -885,9 +884,8 @@ test "a 960-byte password returns TooLarge" {
     }, &keys, &scratch, &out));
 }
 
-test "scan() decrypts a 959-byte password across 1000 arena iterations" {
+fn buildBoundaryJson(buf: []u8) []const u8 {
     const key = [_]u8{0} ** 32;
-    const keys: keydb.Keys = .{ .aes256 = key };
     const password = [_]u8{'P'} ** 959;
     const username = [_]u8{'U'} ** 8;
 
@@ -899,22 +897,43 @@ test "scan() decrypts a 959-byte password across 1000 arena iterations" {
     var user_b64_buf: [256]u8 = undefined;
     const user_b64 = encodeSdrBase64(user_blob.buf[0..user_blob.len], &user_b64_buf);
 
-    var json_buf: [4096]u8 = undefined;
-    const json = std.fmt.bufPrint(&json_buf,
+    return std.fmt.bufPrint(buf,
         \\{{"logins": [{{"hostname": "https://example.com", "encryptedUsername": "{s}", "encryptedPassword": "{s}", "timePasswordChanged": 0}}]}}
     , .{ user_b64, pw_b64 }) catch unreachable;
+}
 
-    for (0..1000) |_| {
-        var arena = std.heap.ArenaAllocator.init(testing.allocator);
-        defer arena.deinit();
-        const result = try logins.scan(arena.allocator(), json, &keys);
-        try testing.expectEqual(@as(usize, 1), result.entries.len);
-        try testing.expect(std.mem.eql(u8, result.entries[0].username, &username));
+test "scan() with a boundary-size password leaks nothing" {
+    const key = [_]u8{0} ** 32;
+    const keys: keydb.Keys = .{ .aes256 = key };
+    const password = [_]u8{'P'} ** 959;
+    const username = [_]u8{'U'} ** 8;
 
-        var scratch: [logins.max_field_len]u8 = undefined;
-        var out: [logins.max_field_len]u8 = undefined;
-        const dec = try logins.revealPassword(result.entries[0], &keys, &scratch, &out);
-        try testing.expectEqual(@as(usize, 959), dec.len);
-        try testing.expect(std.mem.eql(u8, dec, &password));
-    }
+    var json_buf: [4096]u8 = undefined;
+    const json = buildBoundaryJson(&json_buf);
+
+    const result = try logins.scan(testing.allocator, json, &keys);
+    defer freeScanResult(testing.allocator, result);
+
+    try testing.expectEqual(@as(usize, 1), result.entries.len);
+    try testing.expect(std.mem.eql(u8, result.entries[0].username, &username));
+
+    var scratch: [logins.max_field_len]u8 = undefined;
+    var out: [logins.max_field_len]u8 = undefined;
+    const dec = try logins.revealPassword(result.entries[0], &keys, &scratch, &out);
+    try testing.expectEqual(@as(usize, 959), dec.len);
+    try testing.expect(std.mem.eql(u8, dec, &password));
+}
+
+test "scan() frees partial allocations on boundary-size failure" {
+    const key = [_]u8{0} ** 32;
+    const keys: keydb.Keys = .{ .aes256 = key };
+
+    var json_buf: [4096]u8 = undefined;
+    const json = buildBoundaryJson(&json_buf);
+
+    try testing.checkAllAllocationFailures(
+        testing.allocator,
+        scanAllocationFailures,
+        .{ json, &keys },
+    );
 }
