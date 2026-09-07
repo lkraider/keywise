@@ -140,7 +140,7 @@ test "logins.scan marks a 3des-only entry legacy_3des" {
         \\}]}
     ;
     const keys: keydb.Keys = .{ .aes256 = null, .des3 = @splat(0) };
-    const result = try logins.scan(testing.allocator, json, &keys);
+    const result = try logins.scan(testing.allocator, testing.allocator, json, &keys);
     defer freeScanResult(testing.allocator, result);
 
     try testing.expectEqual(@as(usize, 1), result.entries.len);
@@ -198,7 +198,7 @@ test "the fresh fixture decrypts every entry with an empty Primary Password" {
     defer testing.allocator.free(json);
 
     const keys = try loadKeys("core/testdata/fresh/key4.db", "");
-    const result = try logins.scan(testing.allocator, json, &keys);
+    const result = try logins.scan(testing.allocator, testing.allocator, json, &keys);
     defer freeScanResult(testing.allocator, result);
 
     try testing.expectEqual(@as(usize, 3), result.entries.len);
@@ -216,7 +216,7 @@ fn scanAllocationFailures(
     json: []const u8,
     keys: *const keydb.Keys,
 ) !void {
-    const result = try logins.scan(gpa, json, keys);
+    const result = try logins.scan(gpa, gpa, json, keys);
     defer freeScanResult(gpa, result);
 }
 
@@ -240,7 +240,7 @@ test "the primary fixture needs its documented Primary Password" {
     try testing.expectError(error.WrongPassword, loadKeys("core/testdata/primary/key4.db", "wrong"));
 
     const keys = try loadKeys("core/testdata/primary/key4.db", "fixture-primary-password-1");
-    const result = try logins.scan(testing.allocator, json, &keys);
+    const result = try logins.scan(testing.allocator, testing.allocator, json, &keys);
     defer freeScanResult(testing.allocator, result);
 
     try testing.expectEqual(@as(usize, 3), result.entries.len);
@@ -281,7 +281,7 @@ test "the unmigrated fixture carries a 24-byte 3DES key and no AES-256 key" {
     try testing.expect(keys.aes256 == null);
     try testing.expect(keys.des3 != null);
 
-    const result = try logins.scan(testing.allocator, json, &keys);
+    const result = try logins.scan(testing.allocator, testing.allocator, json, &keys);
     defer freeScanResult(testing.allocator, result);
 
     try testing.expectEqual(@as(usize, 3), result.entries.len);
@@ -305,7 +305,7 @@ test "the migrated fixture carries both key rows and decrypts every entry" {
     try testing.expect(keys.aes256 != null);
     try testing.expect(keys.des3 != null);
 
-    const result = try logins.scan(testing.allocator, json, &keys);
+    const result = try logins.scan(testing.allocator, testing.allocator, json, &keys);
     defer freeScanResult(testing.allocator, result);
 
     try testing.expectEqual(@as(usize, 3), result.entries.len);
@@ -320,7 +320,7 @@ test "the sync-shaped fixture filters tombstones and labels the account and exte
     defer testing.allocator.free(json);
 
     const keys = try loadKeys("core/testdata/sync-shaped/key4.db", "");
-    const result = try logins.scan(testing.allocator, json, &keys);
+    const result = try logins.scan(testing.allocator, testing.allocator, json, &keys);
     defer freeScanResult(testing.allocator, result);
 
     // 7 rows in logins.json: 3 ordinary logins, 1 account row, 1 extension
@@ -674,19 +674,19 @@ test "Store.open returns an empty store when logins.json is missing" {
 
 test "logins.scan rejects an object value for the logins key" {
     const keys: keydb.Keys = .{};
-    try testing.expectError(error.NoLoginsArray, logins.scan(testing.allocator,
+    try testing.expectError(error.NoLoginsArray, logins.scan(testing.allocator, testing.allocator,
         \\{"logins": {}}
     , &keys));
 }
 
 test "logins.scan rejects malformed JSON" {
     const keys: keydb.Keys = .{};
-    try testing.expectError(error.MalformedJson, logins.scan(testing.allocator, "not json at all", &keys));
+    try testing.expectError(error.MalformedJson, logins.scan(testing.allocator, testing.allocator, "not json at all", &keys));
 }
 
 test "logins.scan rejects an object with no logins key" {
     const keys: keydb.Keys = .{};
-    try testing.expectError(error.NoLoginsArray, logins.scan(testing.allocator,
+    try testing.expectError(error.NoLoginsArray, logins.scan(testing.allocator, testing.allocator,
         \\{"other": []}
     , &keys));
 }
@@ -911,7 +911,7 @@ test "scan() with a boundary-size password leaks nothing" {
     var json_buf: [4096]u8 = undefined;
     const json = buildBoundaryJson(&json_buf);
 
-    const result = try logins.scan(testing.allocator, json, &keys);
+    const result = try logins.scan(testing.allocator, testing.allocator, json, &keys);
     defer freeScanResult(testing.allocator, result);
 
     try testing.expectEqual(@as(usize, 1), result.entries.len);

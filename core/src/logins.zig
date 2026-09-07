@@ -67,8 +67,8 @@ fn decryptField(b64: []const u8, keys: *const keydb.Keys, scratch: []u8, out: []
 /// Walks every entry in logins.json, decrypting each username now and
 /// keeping each password's base64 blob for a later `Store.reveal`. `gpa`
 /// owns the returned entries and every string they hold.
-pub fn scan(gpa: std.mem.Allocator, json_bytes: []const u8, keys: *const keydb.Keys) Error!ScanResult {
-    const parsed = std.json.parseFromSlice(std.json.Value, gpa, json_bytes, .{}) catch |e| switch (e) {
+pub fn scan(gpa: std.mem.Allocator, tmp: std.mem.Allocator, json_bytes: []const u8, keys: *const keydb.Keys) Error!ScanResult {
+    const parsed = std.json.parseFromSlice(std.json.Value, tmp, json_bytes, .{}) catch |e| switch (e) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return error.MalformedJson,
     };
