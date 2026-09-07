@@ -21,6 +21,7 @@ const model_mod = @import("model.zig");
 /// Set in `WM_CREATE`. `report` wipes the plaintext buffers through it. It
 /// stays null for a panic raised before the window exists.
 pub var model: ?*model_mod.Model = null;
+pub var row_buf: ?[]u16 = null;
 
 var reporting = false;
 
@@ -39,6 +40,7 @@ pub fn report(msg: []const u8, first_trace_addr: ?usize) noreturn {
     // MessageBoxW waits for a click, and it waits as long as the user takes. A
     // memory dump taken during that wait holds the revealed password.
     if (model) |m| m.wipeSecrets();
+    if (row_buf) |buf| std.crypto.secureZero(u16, buf);
 
     // std.debug.panicExtra formats into a 0x1000-byte buffer, so a safety
     // panic's text reaches 4096 bytes. A shorter buffer here would drop it and

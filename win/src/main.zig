@@ -228,6 +228,7 @@ fn windowProc(hwnd: w.HWND, message: w.UINT, wparam: w.WPARAM, lparam: w.LPARAM)
             const app: *App = @ptrCast(@alignCast(create.lpCreateParams.?));
             app.hwnd = hwnd;
             crash.model = &app.model;
+            crash.row_buf = &app.row_buf;
             _ = w.SetWindowLongPtrW(hwnd, w.GWLP_USERDATA, @bitCast(@intFromPtr(app)));
             createChildren(app, hwnd) catch return -1;
             return 0;
