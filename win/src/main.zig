@@ -92,9 +92,13 @@ pub fn main(init: std.process.Init) !u8 {
     defer app.text.deinit();
 
     if (options.profile_path) |path| {
+        const name = try gpa.dupe(u8, path);
+        errdefer gpa.free(name);
+        const p = try gpa.dupe(u8, path);
+        errdefer gpa.free(p);
         app.profiles = try gpa.dupe(core.profiles.Profile, &.{.{
-            .name = try gpa.dupe(u8, path),
-            .path = try gpa.dupe(u8, path),
+            .name = name,
+            .path = p,
         }});
     } else if (init.environ_map.get("APPDATA")) |appdata| {
         app.profiles = readProfiles(gpa, io, appdata) catch &.{};
