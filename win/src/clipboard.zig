@@ -104,5 +104,14 @@ fn put(format: w.UINT, bytes: []const u8) Error!void {
     @memcpy(dest[0..bytes.len], bytes);
     _ = w.GlobalUnlock(handle);
 
+    errdefer {
+        if (w.GlobalLock(handle)) |ptr| {
+            const d: [*]u8 = @ptrCast(ptr);
+            const size = w.GlobalSize(handle);
+            if (size > 0) std.crypto.secureZero(u8, d[0..size]);
+            _ = w.GlobalUnlock(handle);
+        }
+    }
+
     if (w.SetClipboardData(format, @ptrCast(handle)) == null) return error.OutOfMemory;
 }
