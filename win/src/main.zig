@@ -274,7 +274,7 @@ fn windowProc(hwnd: w.HWND, message: w.UINT, wparam: w.WPARAM, lparam: w.LPARAM)
         },
         w.WM_DESTROY => {
             if (appOf(hwnd)) |app| {
-                app.model.hideRevealed();
+                hideAndWipeRow(app);
                 app.clip.clearIfUnchanged(hwnd);
                 if (app.font) |f| _ = w.DeleteObject(@ptrCast(f));
             }
@@ -523,7 +523,7 @@ fn onCommand(app: *App, hwnd: w.HWND, wparam: w.WPARAM) w.LRESULT {
             }
         },
         ids.IDM_EDIT_HIDE => {
-            app.model.hideRevealed();
+            hideAndWipeRow(app);
             _ = w.KillTimer(hwnd, ids.timer_hide_reveal);
             redrawRows(app);
             showStatus(app);
@@ -636,7 +636,7 @@ fn runSearch(app: *App) void {
     var query: [search_max * 3]u8 = undefined;
     const len = std.unicode.utf16LeToUtf8(&query, wide_buf[0..n]) catch 0;
 
-    app.model.hideRevealed();
+    hideAndWipeRow(app);
     app.model.search(query[0..len]) catch {
         app.model.setStatus("search failed (out of memory)", .{});
     };
@@ -709,7 +709,7 @@ fn onTimer(app: *App, hwnd: w.HWND, id: w.WPARAM) void {
     switch (id) {
         ids.timer_hide_reveal => {
             _ = w.KillTimer(hwnd, ids.timer_hide_reveal);
-            app.model.hideRevealed();
+            hideAndWipeRow(app);
             redrawRows(app);
             showStatus(app);
         },
@@ -731,6 +731,11 @@ fn showRowMenu(app: *App) void {
     _ = w.TrackPopupMenu(popup, w.TPM_LEFTALIGN | w.TPM_RIGHTBUTTON, at.x, at.y, 0, hwnd, null);
 }
 
+fn hideAndWipeRow(app: *App) void {
+    app.model.hideRevealed();
+    std.crypto.secureZero(u16, &app.row_buf);
+}
+
 fn switchProfile(app: *App, hwnd: w.HWND, index: usize) void {
     if (index >= app.profiles.len) return;
     app.selected = index;
@@ -738,6 +743,7 @@ fn switchProfile(app: *App, hwnd: w.HWND, index: usize) void {
 
     _ = w.KillTimer(hwnd, ids.timer_hide_reveal);
     if (app.search) |search| _ = w.SetWindowTextW(search, std.unicode.utf8ToUtf16LeStringLiteral(""));
+    std.crypto.secureZero(u16, &app.row_buf);
 
     _ = app.model.open(app.profiles[index].path);
     if (app.model.needs_password) promptPassword(app, hwnd);
