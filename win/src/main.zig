@@ -40,6 +40,7 @@ const search_max = 256;
 /// logins.json holds the password as an SDR blob, and store.reveal decrypts
 /// into a buffer this size in every front end.
 const secret_max = core.logins.max_field_len;
+const secret_wide = secret_max + 1;
 
 const App = struct {
     gpa: std.mem.Allocator,

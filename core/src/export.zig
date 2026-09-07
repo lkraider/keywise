@@ -29,7 +29,7 @@ fn writeEntries(
 ) WriteError!WriteResult {
     var scratch: [logins.max_field_len]u8 = undefined;
     var out: [logins.max_field_len]u8 = undefined;
-    var buf: [32768]u8 = undefined;
+    var buf: [logins.max_export_row]u8 = undefined;
     defer std.crypto.secureZero(u8, &scratch);
     defer std.crypto.secureZero(u8, &out);
     defer std.crypto.secureZero(u8, &buf);

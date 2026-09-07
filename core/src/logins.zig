@@ -5,6 +5,7 @@ const sdr = @import("sdr.zig");
 const keydb = @import("keydb.zig");
 
 pub const max_field_len: usize = 1024;
+pub const max_export_row: usize = 8 * max_field_len;
 
 pub const Error = error{ NoLoginsArray, MalformedJson } || std.mem.Allocator.Error;
 pub const RevealError = error{ LegacyTripleDes, NoSdrKey, TooLarge } || std.base64.Error || sdr.Error;
