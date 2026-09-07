@@ -65,7 +65,7 @@ const App = struct {
     hostnames: [][:0]u16 = &.{},
     usernames: [][:0]u16 = &.{},
     /// The password column's text for the row the list is asking about.
-    row_buf: [secret_max]u16 = undefined,
+    row_buf: [secret_wide]u16 = undefined,
 };
 
 pub fn main(init: std.process.Init) !u8 {
