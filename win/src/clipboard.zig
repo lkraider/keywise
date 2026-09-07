@@ -10,6 +10,7 @@
 //! macos/Sources/Keywise/ClipboardWriter.swift.
 
 const std = @import("std");
+const core = @import("core");
 const w = @import("win32.zig");
 
 pub const Error = error{ ClipboardBusy, OutOfMemory, TooLong, InvalidUtf8 };
@@ -30,14 +31,13 @@ pub const Writer = struct {
     /// between survives.
     sequence: w.DWORD = 0,
     owns_content: bool = false,
+    scratch: [core.logins.max_field_len + 1]u16 = undefined,
 
-    /// `scratch` holds the UTF-16 copy of `text`. This wipes it before
-    /// returning. The clipboard's own copy lives until `clearIfUnchanged`.
-    pub fn write(self: *Writer, owner: w.HWND, text: []const u8, scratch: []u16) Error!void {
-        if (text.len + 1 > scratch.len) return error.TooLong;
-        const n = try std.unicode.utf8ToUtf16Le(scratch, text);
-        scratch[n] = 0;
-        defer std.crypto.secureZero(u16, scratch[0 .. n + 1]);
+    pub fn write(self: *Writer, owner: w.HWND, text: []const u8) Error!void {
+        if (text.len + 1 > self.scratch.len) return error.TooLong;
+        defer std.crypto.secureZero(u16, &self.scratch);
+        const n = try std.unicode.utf8ToUtf16Le(&self.scratch, text);
+        self.scratch[n] = 0;
 
         if (w.OpenClipboard(owner) == 0) return error.ClipboardBusy;
         var wrote = false;
@@ -45,21 +45,19 @@ pub const Writer = struct {
             _ = w.CloseClipboard();
             if (wrote) {
                 self.owns_content = true;
-                // The close above bumps the sequence number, so read it here.
                 self.sequence = w.GetClipboardSequenceNumber();
             }
         }
 
+        if (self.owns_content) zeroClipboardData();
         _ = w.EmptyClipboard();
 
-        // The markers go on first. A monitor that reads the clipboard the
-        // moment the text lands then already finds them.
         putRegistered(exclude_monitor, &[_]u8{0}) catch {};
         putRegistered(viewer_ignore, &[_]u8{0}) catch {};
         putRegistered(no_history, std.mem.asBytes(&@as(u32, 0))) catch {};
         putRegistered(no_cloud, std.mem.asBytes(&@as(u32, 0))) catch {};
 
-        try put(w.CF_UNICODETEXT, std.mem.sliceAsBytes(scratch[0 .. n + 1]));
+        try put(w.CF_UNICODETEXT, std.mem.sliceAsBytes(self.scratch[0 .. n + 1]));
         wrote = true;
     }
 
@@ -70,10 +68,24 @@ pub const Writer = struct {
         self.owns_content = false;
         if (w.GetClipboardSequenceNumber() != self.sequence) return;
         if (w.OpenClipboard(owner) == 0) return;
+        zeroClipboardData();
         _ = w.EmptyClipboard();
         _ = w.CloseClipboard();
     }
 };
+
+fn zeroClipboardData() void {
+    if (w.GetClipboardData(w.CF_UNICODETEXT)) |handle| {
+        if (w.GlobalLock(handle)) |ptr| {
+            const size = w.GlobalSize(handle);
+            if (size > 0) {
+                const dest: [*]u8 = @ptrCast(ptr);
+                std.crypto.secureZero(u8, dest[0..size]);
+            }
+            _ = w.GlobalUnlock(handle);
+        }
+    }
+}
 
 fn putRegistered(name: [*:0]const u16, bytes: []const u8) Error!void {
     const format = w.RegisterClipboardFormatW(name);

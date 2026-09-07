@@ -677,8 +677,7 @@ fn copySelected(app: *App, hwnd: w.HWND) void {
 
     switch (result) {
         .copied => |text| {
-            var scratch: [secret_max]u16 = undefined;
-            app.clip.write(hwnd, text, &scratch) catch |err| {
+            app.clip.write(hwnd, text) catch |err| {
                 app.model.clearCopy();
                 app.model.reportCopyFailed(copyFailure(err));
                 showStatus(app);

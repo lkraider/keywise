@@ -383,6 +383,8 @@ pub extern "user32" fn EmptyClipboard() callconv(.winapi) BOOL;
 pub extern "user32" fn SetClipboardData(UINT, ?HANDLE) callconv(.winapi) ?HANDLE;
 pub extern "user32" fn RegisterClipboardFormatW(LPCWSTR) callconv(.winapi) UINT;
 pub extern "user32" fn GetClipboardSequenceNumber() callconv(.winapi) DWORD;
+pub extern "user32" fn GetClipboardData(uFormat: UINT) callconv(.winapi) ?HGLOBAL;
+pub extern "kernel32" fn GlobalSize(hMem: HGLOBAL) callconv(.winapi) usize;
 
 pub extern "gdi32" fn CreateFontIndirectW(*const LOGFONTW) callconv(.winapi) ?HFONT;
 pub extern "gdi32" fn DeleteObject(HGDIOBJ) callconv(.winapi) BOOL;
