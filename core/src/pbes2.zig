@@ -73,7 +73,7 @@ pub fn parse(blob: []const u8) Error!Params {
 /// seeds with SHA1. Setting a Primary Password for the first time replaces it
 /// with a 48-byte SHA384-length salt and seeds with SHA384 instead. NSS picks
 /// the hash by matching the salt length, in `sftkdb_passwordToKey`.
-fn seedHash(global_salt: []const u8, password: []const u8, out: []u8) Error!void {
+fn seedHash(global_salt: []const u8, password: []const u8, out: *[48]u8) Error!void {
     switch (global_salt.len) {
         20 => {
             var h = std.crypto.hash.Sha1.init(.{});

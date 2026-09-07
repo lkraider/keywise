@@ -420,7 +420,7 @@ fn serialLen(t: u64) Error!usize {
         5 => 6,
         6, 7 => 8,
         10, 11 => error.Corrupt,
-        else => @intCast((t - 12) / 2),
+        else => std.math.cast(usize, (t - 12) / 2) orelse return error.Corrupt,
     };
 }
 
